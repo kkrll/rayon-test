@@ -1,0 +1,11 @@
+:root {
+  --bg: #f6f6f4;
+  --fg: #1d1d1b;
+  --muted: #8a8a85;
+  --line: #dcdcd7;
+  font-family: system-ui, -apple-system, sans-serif;
+  color: var(--fg);
+  background: var(--bg);
+}
+
+html, body, #root { margin: 0; height: 100%; }
