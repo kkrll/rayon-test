@@ -1,17 +1,42 @@
+import type { Diff } from '../engine/history';
 import type { Furniture, ModelObject, Room, Wall } from '../engine/types';
 import { type Bounds, type Camera, toScreen } from './camera';
 import type { Theme } from './theme';
 
 /**
- * Full ("at rest") render: room fills and labels, furniture in material
- * colours, walls on top. `dpr` is the device pixel ratio of the canvas.
+ * full:    at rest. Room fills and labels, materials, walls on top.
+ * outline: while scrubbing. Strokes only, no fills, no labels; objects in
+ *          the diff keep their full style so changes stand out.
  */
+export type RenderMode = 'full' | 'outline';
+
+/** The diff since the start of the cursor's session, as the renderer needs it. */
+export interface Highlight {
+  added: Set<string>;
+  modified: Set<string>;
+  deleted: ModelObject[]; // drawn as ghosts, as they were before deletion
+}
+
+export const NO_HIGHLIGHT: Highlight = { added: new Set(), modified: new Set(), deleted: [] };
+
+export function toHighlight(diff: Diff): Highlight {
+  return {
+    added: new Set(diff.added.map((o) => o.id)),
+    modified: new Set(diff.modified.map((o) => o.id)),
+    deleted: diff.deleted,
+  };
+}
+
+const HIGHLIGHT_PX = 2;
+
 export function drawModel(
   ctx: CanvasRenderingContext2D,
   state: ReadonlyMap<string, ModelObject>,
   cam: Camera,
   dpr: number,
   theme: Theme,
+  mode: RenderMode,
+  highlight: Highlight,
 ) {
   const rooms: Room[] = [];
   const walls: Wall[] = [];
@@ -21,36 +46,99 @@ export function drawModel(
     else if (o.type === 'wall') walls.push(o);
     else furniture.push(o);
   }
+  const changed = (o: ModelObject) => highlight.added.has(o.id) || highlight.modified.has(o.id);
+  const full = (o: ModelObject) => mode === 'full' || changed(o);
 
   ctx.setTransform(dpr * cam.scale, 0, 0, dpr * cam.scale, dpr * cam.tx, dpr * cam.ty);
   const hairline = 1 / cam.scale;
+  ctx.lineWidth = hairline;
+  ctx.setLineDash([]);
 
   for (const r of rooms) {
     traceRoom(ctx, r);
-    ctx.fillStyle = r.style.fill;
-    ctx.fill();
+    if (full(r)) {
+      ctx.fillStyle = r.style.fill;
+      ctx.fill();
+    } else {
+      ctx.strokeStyle = theme.foreground03;
+      ctx.stroke();
+    }
   }
 
-  // Largest first: rugs end up under the beds and sofas standing on them.
-  furniture.sort((a, b) => b.geometry.w * b.geometry.h - a.geometry.w * a.geometry.h);
-  ctx.lineWidth = hairline;
+  if (mode === 'full') {
+    // Largest first: rugs end up under the beds and sofas standing on them.
+    furniture.sort((a, b) => b.geometry.w * b.geometry.h - a.geometry.w * a.geometry.h);
+  }
   ctx.strokeStyle = theme.foreground03;
   for (const f of furniture) {
     traceFurniture(ctx, f);
-    ctx.fillStyle = f.style.material;
-    ctx.fill();
+    if (full(f)) {
+      ctx.fillStyle = f.style.material;
+      ctx.fill();
+    }
     ctx.stroke();
   }
 
-  ctx.strokeStyle = theme.foreground;
-  ctx.lineCap = 'square';
   for (const w of walls) {
-    ctx.lineWidth = w.geometry.thickness;
-    traceWall(ctx, w);
+    if (full(w)) {
+      ctx.strokeStyle = theme.foreground;
+      ctx.lineCap = 'square';
+      ctx.lineWidth = w.geometry.thickness;
+      traceWall(ctx, w);
+    } else {
+      // A centreline reads cleaner than two footprint edges meeting at joints.
+      ctx.strokeStyle = theme.foreground05;
+      ctx.lineCap = 'butt';
+      ctx.lineWidth = 1.5 * hairline;
+      traceWall(ctx, w);
+    }
     ctx.stroke();
   }
 
-  drawRoomLabels(ctx, rooms, cam, dpr, theme);
+  drawHighlight(ctx, state, cam, theme, highlight);
+  if (mode === 'full') drawRoomLabels(ctx, rooms, cam, dpr, theme);
+}
+
+/** Diff colours on top of everything. Deletions are dashed: never colour alone. */
+function drawHighlight(
+  ctx: CanvasRenderingContext2D,
+  state: ReadonlyMap<string, ModelObject>,
+  cam: Camera,
+  theme: Theme,
+  highlight: Highlight,
+) {
+  ctx.lineWidth = HIGHLIGHT_PX / cam.scale;
+  ctx.lineCap = 'butt';
+
+  const strokeAll = (ids: Set<string>, color: string) => {
+    ctx.strokeStyle = color;
+    for (const id of ids) {
+      const o = state.get(id);
+      if (!o) continue;
+      traceOutline(ctx, o);
+      ctx.stroke();
+    }
+  };
+  strokeAll(highlight.modified, theme.modified);
+  strokeAll(highlight.added, theme.added);
+
+  ctx.strokeStyle = theme.deleted;
+  ctx.fillStyle = theme.deleted;
+  ctx.setLineDash([6 / cam.scale, 4 / cam.scale]);
+  for (const o of highlight.deleted) {
+    traceOutline(ctx, o);
+    ctx.globalAlpha = 0.12;
+    ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.stroke();
+  }
+  ctx.setLineDash([]);
+}
+
+function traceOutline(ctx: CanvasRenderingContext2D, o: ModelObject) {
+  if (o.type === 'wall') traceWallOutline(ctx, o);
+  else if (o.type === 'room') traceRoom(ctx, o);
+  else traceFurniture(ctx, o);
 }
 
 export function traceWall(ctx: CanvasRenderingContext2D, w: Wall) {
@@ -58,6 +146,21 @@ export function traceWall(ctx: CanvasRenderingContext2D, w: Wall) {
   ctx.beginPath();
   ctx.moveTo(a.x, a.y);
   ctx.lineTo(b.x, b.y);
+}
+
+/** The wall's footprint: its centreline extended by half the thickness all round. */
+function traceWallOutline(ctx: CanvasRenderingContext2D, w: Wall) {
+  const { a, b, thickness } = w.geometry;
+  const len = Math.hypot(b.x - a.x, b.y - a.y) || 1;
+  const h = thickness / 2;
+  const dx = ((b.x - a.x) / len) * h;
+  const dy = ((b.y - a.y) / len) * h;
+  ctx.beginPath();
+  ctx.moveTo(a.x - dx - dy, a.y - dy + dx);
+  ctx.lineTo(b.x + dx - dy, b.y + dy + dx);
+  ctx.lineTo(b.x + dx + dy, b.y + dy - dx);
+  ctx.lineTo(a.x - dx + dy, a.y - dy - dx);
+  ctx.closePath();
 }
 
 export function traceRoom(ctx: CanvasRenderingContext2D, r: Room) {

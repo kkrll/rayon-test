@@ -1,6 +1,7 @@
 import { onCleanup, onMount } from 'solid-js';
 import type { Op } from '../engine/types';
 import { FRAME_ORDER, onFrame } from '../render/frameLoop';
+import { stats } from '../render/stats';
 import { type Theme, readTheme } from '../render/theme';
 import { TimelineLayout } from '../render/timelineLayout';
 import { TOP_PAD, type TimelineView, drawTimeline, yToAxis } from '../render/timelineRenderer';
@@ -107,7 +108,9 @@ export function Timeline(props: Props) {
     if (!dirty) return;
     const seq = seqAtHead();
     cursor.seq = seq;
+    const start = performance.now();
     drawTimeline(canvas.getContext('2d')!, props.ops, layout, view, window.devicePixelRatio || 1, theme);
+    stats.timeline.record(performance.now() - start);
     if (seq !== publishedSeq) props.onSeqDrawn?.(seq);
     publishedSeq = seq;
     dirty = false;
