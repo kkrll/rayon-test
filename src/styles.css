@@ -128,4 +128,9 @@ body {
   height: 100%;
   min-height: 0;
   touch-action: none;
+  cursor: grab;
+}
+
+.timeline:active {
+  cursor: grabbing;
 }

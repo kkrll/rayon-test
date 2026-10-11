@@ -27,6 +27,8 @@ export interface TimelineView {
   scroll: number; // CSS px scrolled down from the newest edit
   width: number;
   height: number;
+  /** Fixed playhead position; history scrolls underneath it. */
+  headY: number;
 }
 
 /** Maps a position on the time axis to screen y (time runs upwards). */
@@ -43,11 +45,10 @@ export function drawTimeline(
   ops: Op[],
   layout: TimelineLayout,
   view: TimelineView,
-  cursorSeq: number,
   dpr: number,
   theme: Theme,
 ) {
-  const { ppo, width, height } = view;
+  const { ppo, width, height, headY } = view;
   const y = (a: number) => axisToY(layout, view, a);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
@@ -58,8 +59,15 @@ export function drawTimeline(
 
   drawTicks(ctx, ops, layout, first, last, ppo, y, theme);
   drawBreaks(ctx, ops, layout, view, first, last, y, theme);
+
+  // Edits above the head are not applied to the model shown: dim them.
+  ctx.globalAlpha = 0.6;
+  ctx.fillStyle = theme.background;
+  ctx.fillRect(0, 0, width, headY);
+  ctx.globalAlpha = 1;
+
   drawStickyDay(ctx, ops, layout, view, last, y, theme);
-  drawCursor(ctx, y(layout.boundaryAt(cursorSeq, ppo)), width, theme);
+  drawHead(ctx, headY, width, theme);
 }
 
 function drawTicks(
@@ -169,7 +177,7 @@ function drawStickyDay(
   drawBand(ctx, Math.min(0, nextTop - BREAK_PX), view.width, formatDay(ops[topOp - 1].ts), null, theme);
 }
 
-function drawCursor(ctx: CanvasRenderingContext2D, y: number, width: number, theme: Theme) {
+function drawHead(ctx: CanvasRenderingContext2D, y: number, width: number, theme: Theme) {
   const cy = Math.round(y);
   ctx.fillStyle = theme.accent;
   ctx.fillRect(0, cy - 1, width, 2);
