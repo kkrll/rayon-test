@@ -3,6 +3,7 @@ import type { History } from '../engine/history';
 import { type Bounds, type Camera, fitCamera, zoomAt } from '../render/camera';
 import { onFrame } from '../render/frameLoop';
 import { drawModel } from '../render/modelRenderer';
+import { type Theme, readTheme } from '../render/theme';
 
 interface Props {
   history: History;
@@ -15,6 +16,7 @@ interface Props {
 export function ModelView(props: Props) {
   let canvas!: HTMLCanvasElement;
   let camera: Camera | null = null;
+  let theme: Theme;
   let dirty = true;
   let drawnSeq = -1;
 
@@ -33,7 +35,7 @@ export function ModelView(props: Props) {
     const dpr = window.devicePixelRatio || 1;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, canvas.width, canvas.height);
-    drawModel(ctx, props.history.getStateAt(seq), camera, dpr);
+    drawModel(ctx, props.history.getStateAt(seq), camera, dpr, theme);
     drawnSeq = seq;
     dirty = false;
   };
@@ -67,6 +69,7 @@ export function ModelView(props: Props) {
   };
 
   onMount(() => {
+    theme = readTheme(canvas);
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);
     canvas.addEventListener('wheel', onWheel, { passive: false });

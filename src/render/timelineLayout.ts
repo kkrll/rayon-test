@@ -4,7 +4,8 @@ export const BREAK_GAP_MS = 2 * 60 * 60 * 1000;
 export const BREAK_PX = 36;
 
 /**
- * Horizontal layout of the timeline in content pixels (before scrolling).
+ * Layout along the timeline's time axis, in content pixels (before scrolling).
+ * Axis-neutral: the renderer decides which screen direction time runs in.
  * Every edit gets the same width (`ppo`, pixels per op); idle gaps longer than
  * BREAK_GAP_MS collapse into a fixed-width break, whatever the zoom.
  *
@@ -28,29 +29,29 @@ export class TimelineLayout {
     }
   }
 
-  boundaryX(s: number, ppo: number) {
+  boundaryAt(s: number, ppo: number) {
     return s * ppo + this.breaksBefore[s] * BREAK_PX;
   }
 
   /** Left edge of op k's slot (it sits after any break at boundary k-1). */
-  tickX(k: number, ppo: number) {
+  tickAt(k: number, ppo: number) {
     return (k - 1) * ppo + this.breaksBefore[k] * BREAK_PX;
   }
 
-  width(ppo: number) {
-    return this.boundaryX(this.n, ppo);
+  length(ppo: number) {
+    return this.boundaryAt(this.n, ppo);
   }
 
-  /** Nearest boundary to content x. */
-  seqAtX(x: number, ppo: number) {
+  /** Nearest boundary to an axis position. */
+  seqAt(x: number, ppo: number) {
     let lo = 0;
     let hi = this.n;
     while (lo < hi) {
       const mid = (lo + hi + 1) >> 1;
-      if (this.boundaryX(mid, ppo) <= x) lo = mid;
+      if (this.boundaryAt(mid, ppo) <= x) lo = mid;
       else hi = mid - 1;
     }
-    if (lo < this.n && this.boundaryX(lo + 1, ppo) - x < x - this.boundaryX(lo, ppo)) return lo + 1;
+    if (lo < this.n && this.boundaryAt(lo + 1, ppo) - x < x - this.boundaryAt(lo, ppo)) return lo + 1;
     return lo;
   }
 }

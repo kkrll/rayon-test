@@ -1,30 +1,41 @@
 import type { Op, OpKind } from '../engine/types';
 import { dayIndex, formatDay, formatGap } from '../ui/format';
+import type { Theme } from './theme';
 import { BREAK_PX, type TimelineLayout } from './timelineLayout';
 
-/** Vertical bands of the strip, in CSS pixels. */
-export const ROWS = {
-  rulerTop: 0,
-  ticksTop: 24,
-  ticksBottom: 50,
+/**
+ * Vertical timeline: newest edit at the top, older edits further down.
+ * Every gap between days is a compressed break, and that band doubles as
+ * the header of the day below it.
+ */
+
+/** Horizontal columns of the strip, in CSS pixels. */
+export const COLUMNS = {
+  ticksLeft: 16,
+  ticksWidth: 20,
+  /** Everything left of this scrubs; right of it is the sessions area. */
+  scrubRight: 48,
+  labelLeft: 16,
 };
 
-export const KIND_COLORS: Record<OpKind, string> = {
-  create: '#3f9a5c',
-  update: '#9ba1aa',
-  delete: '#d0524a',
-};
-
-const CURSOR_COLOR = '#2f6bff';
-const RULE_COLOR = '#e4e4df';
-const TEXT_COLOR = '#6f6f6a';
-const BREAK_COLOR = '#f0f0ec';
+/** Space above the newest edit, holding the newest day's header. */
+export const TOP_PAD = BREAK_PX;
+export const BOTTOM_PAD = 24;
 
 export interface TimelineView {
-  ppo: number; // pixels per op
-  scrollX: number; // content x at the left edge
-  width: number; // CSS px
+  ppo: number; // pixels per op along the time axis
+  scroll: number; // CSS px scrolled down from the newest edit
+  width: number;
   height: number;
+}
+
+/** Maps a position on the time axis to screen y (time runs upwards). */
+export function axisToY(layout: TimelineLayout, view: TimelineView, a: number) {
+  return TOP_PAD + layout.length(view.ppo) - a - view.scroll;
+}
+
+export function yToAxis(layout: TimelineLayout, view: TimelineView, y: number) {
+  return TOP_PAD + layout.length(view.ppo) - view.scroll - y;
 }
 
 export function drawTimeline(
@@ -34,70 +45,52 @@ export function drawTimeline(
   view: TimelineView,
   cursorSeq: number,
   dpr: number,
+  theme: Theme,
 ) {
-  const { ppo, scrollX, width, height } = view;
+  const { ppo, width, height } = view;
+  const y = (a: number) => axisToY(layout, view, a);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, width, height);
 
   // Visible op range, with one op of margin on each side.
-  const first = Math.max(1, layout.seqAtX(scrollX, ppo));
-  const last = Math.min(ops.length, layout.seqAtX(scrollX + width, ppo) + 1);
-  const x = (k: number) => layout.tickX(k, ppo) - scrollX;
+  const first = Math.max(1, layout.seqAt(yToAxis(layout, view, height), ppo));
+  const last = Math.min(ops.length, layout.seqAt(yToAxis(layout, view, 0), ppo) + 1);
 
-  drawBreaks(ctx, ops, layout, view, first, last);
-  drawDayRuler(ctx, ops, first, last, x, height);
+  drawTicks(ctx, ops, layout, first, last, ppo, y, theme);
+  drawBreaks(ctx, ops, layout, view, first, last, y, theme);
+  drawStickyDay(ctx, ops, layout, view, last, y, theme);
+  drawCursor(ctx, y(layout.boundaryAt(cursorSeq, ppo)), width, theme);
+}
 
+function drawTicks(
+  ctx: CanvasRenderingContext2D,
+  ops: Op[],
+  layout: TimelineLayout,
+  first: number,
+  last: number,
+  ppo: number,
+  y: (a: number) => number,
+  theme: Theme,
+) {
+  const colors: Record<OpKind, string> = { update: theme.foreground05, create: theme.added, delete: theme.deleted };
+  const tickH = Math.max(1, ppo - 1);
   // One pass per kind keeps fillStyle changes to three per frame.
-  const tickW = Math.max(1, ppo - 1);
-  const tickH = ROWS.ticksBottom - ROWS.ticksTop;
   for (const kind of ['update', 'create', 'delete'] as const) {
-    ctx.fillStyle = KIND_COLORS[kind];
+    ctx.fillStyle = colors[kind];
     ctx.beginPath();
     for (let k = first; k <= last; k++) {
-      if (ops[k - 1].kind === kind) ctx.rect(x(k), ROWS.ticksTop, tickW, tickH);
+      if (ops[k - 1].kind !== kind) continue;
+      ctx.rect(COLUMNS.ticksLeft, y(layout.tickAt(k, ppo) + ppo), COLUMNS.ticksWidth, tickH);
     }
     ctx.fill();
   }
-
-  drawCursor(ctx, layout.boundaryX(cursorSeq, ppo) - scrollX, height);
 }
 
-function drawDayRuler(
-  ctx: CanvasRenderingContext2D,
-  ops: Op[],
-  first: number,
-  last: number,
-  x: (k: number) => number,
-  height: number,
-) {
-  // Day starts in view, plus the day already in progress at the left edge.
-  const starts: { x: number; ts: number }[] = [];
-  if (first > 1 && dayIndex(ops[first - 1].ts) === dayIndex(ops[first - 2].ts)) {
-    starts.push({ x: -Infinity, ts: ops[first - 1].ts });
-  }
-  for (let k = first; k <= last; k++) {
-    if (k > 1 && dayIndex(ops[k - 1].ts) === dayIndex(ops[k - 2].ts)) continue;
-    starts.push({ x: Math.round(x(k)) + 0.5, ts: ops[k - 1].ts });
-  }
-
-  ctx.font = '500 11px system-ui, sans-serif';
-  ctx.textBaseline = 'top';
-  ctx.textAlign = 'left';
-  starts.forEach((start, i) => {
-    if (start.x > -Infinity) {
-      ctx.fillStyle = RULE_COLOR;
-      ctx.fillRect(start.x, ROWS.rulerTop, 1, height);
-    }
-    // Sticky label: pinned to the left edge, pushed out by the next one.
-    const text = formatDay(start.ts);
-    let labelX = Math.max(start.x, 0) + 4;
-    const next = starts[i + 1];
-    if (next) labelX = Math.min(labelX, next.x - ctx.measureText(text).width - 8);
-    ctx.fillStyle = TEXT_COLOR;
-    ctx.fillText(text, labelX, ROWS.rulerTop + 6);
-  });
-}
-
+/**
+ * Break bands. A band at boundary b sits between op b (below, older) and
+ * op b+1 (above, newer). If the day changes there, it is also the header
+ * of op b's day.
+ */
 function drawBreaks(
   ctx: CanvasRenderingContext2D,
   ops: Op[],
@@ -105,28 +98,85 @@ function drawBreaks(
   view: TimelineView,
   first: number,
   last: number,
+  y: (a: number) => number,
+  theme: Theme,
 ) {
-  ctx.font = '10px system-ui, sans-serif';
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
   for (const b of layout.breaks) {
     if (b < first - 1 || b > last) continue;
-    const left = layout.boundaryX(b, view.ppo) - view.scrollX;
-    ctx.fillStyle = BREAK_COLOR;
-    ctx.fillRect(left + 2, ROWS.ticksTop, BREAK_PX - 4, view.height - ROWS.ticksTop);
-    ctx.fillStyle = TEXT_COLOR;
-    ctx.fillText(formatGap(ops[b].ts - ops[b - 1].ts), left + BREAK_PX / 2, (ROWS.ticksTop + ROWS.ticksBottom) / 2);
+    const top = y(layout.boundaryAt(b, view.ppo) + BREAK_PX);
+    const gap = formatGap(ops[b].ts - ops[b - 1].ts);
+    const day = dayIndex(ops[b - 1].ts) !== dayIndex(ops[b].ts) ? formatDay(ops[b - 1].ts) : null;
+    drawBand(ctx, top, view.width, day, gap, theme);
+  }
+  // The newest day has no break above it: its header lives in the top padding.
+  if (last === ops.length) drawBand(ctx, y(layout.length(view.ppo) + TOP_PAD), view.width, formatDay(ops[ops.length - 1].ts), null, theme);
+}
+
+function drawBand(
+  ctx: CanvasRenderingContext2D,
+  top: number,
+  width: number,
+  day: string | null,
+  gap: string | null,
+  theme: Theme,
+) {
+  ctx.fillStyle = theme.background;
+  ctx.fillRect(0, top, width, BREAK_PX);
+  ctx.fillStyle = theme.foreground03;
+  ctx.fillRect(0, Math.round(top) + 0.5, width, 1);
+
+  const mid = top + BREAK_PX / 2 + 1;
+  ctx.textBaseline = 'middle';
+  ctx.font = `500 11px ${theme.fontMono}`;
+  if (day) {
+    ctx.textAlign = 'left';
+    ctx.fillStyle = theme.foreground;
+    ctx.fillText(day.toUpperCase(), COLUMNS.labelLeft, mid);
+  }
+  if (gap) {
+    // Secondary by weight, not by a fainter step: -07 fails contrast on dark.
+    ctx.font = `400 11px ${theme.fontMono}`;
+    ctx.textAlign = 'right';
+    ctx.fillStyle = theme.foreground;
+    ctx.fillText(gap, width - 16, mid);
   }
 }
 
-function drawCursor(ctx: CanvasRenderingContext2D, x: number, height: number) {
-  const cx = Math.round(x);
-  ctx.fillStyle = CURSOR_COLOR;
-  ctx.fillRect(cx - 1, ROWS.rulerTop, 2, height);
+/**
+ * Keeps the header of the day at the top of the view pinned while its own
+ * band is scrolled away; the next day's band pushes it out.
+ */
+function drawStickyDay(
+  ctx: CanvasRenderingContext2D,
+  ops: Op[],
+  layout: TimelineLayout,
+  view: TimelineView,
+  topOp: number,
+  y: (a: number) => number,
+  theme: Theme,
+) {
+  const day = dayIndex(ops[topOp - 1].ts);
+  let newest = topOp;
+  while (newest < ops.length && dayIndex(ops[newest].ts) === day) newest++;
+  let oldest = topOp;
+  while (oldest > 1 && dayIndex(ops[oldest - 2].ts) === day) oldest--;
+
+  const headerTop = y(layout.boundaryAt(newest, view.ppo) + BREAK_PX);
+  if (headerTop >= 0) return; // its own band is still in view
+
+  // The band below this day (the older day's header) pushes this one up.
+  const nextTop = oldest > 1 ? y(layout.boundaryAt(oldest - 1, view.ppo) + BREAK_PX) : Infinity;
+  drawBand(ctx, Math.min(0, nextTop - BREAK_PX), view.width, formatDay(ops[topOp - 1].ts), null, theme);
+}
+
+function drawCursor(ctx: CanvasRenderingContext2D, y: number, width: number, theme: Theme) {
+  const cy = Math.round(y);
+  ctx.fillStyle = theme.accent;
+  ctx.fillRect(0, cy - 1, width, 2);
   ctx.beginPath();
-  ctx.moveTo(cx - 6, ROWS.rulerTop);
-  ctx.lineTo(cx + 6, ROWS.rulerTop);
-  ctx.lineTo(cx, ROWS.rulerTop + 8);
+  ctx.moveTo(0, cy - 6);
+  ctx.lineTo(8, cy);
+  ctx.lineTo(0, cy + 6);
   ctx.closePath();
   ctx.fill();
 }

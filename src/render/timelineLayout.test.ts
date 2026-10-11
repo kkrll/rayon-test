@@ -18,16 +18,16 @@ describe('TimelineLayout', () => {
 
   test('collapses idle gaps over 2 h into one fixed-width break', () => {
     expect(layout.breaks).toEqual([3]);
-    expect(layout.width(10)).toBe(5 * 10 + BREAK_PX);
-    expect(layout.width(2)).toBe(5 * 2 + BREAK_PX);
+    expect(layout.length(10)).toBe(5 * 10 + BREAK_PX);
+    expect(layout.length(2)).toBe(5 * 2 + BREAK_PX);
   });
 
   test('ticks after a break are shifted by the break width', () => {
-    expect(layout.tickX(3, 10)).toBe(20);
-    expect(layout.tickX(4, 10)).toBe(30 + BREAK_PX);
+    expect(layout.tickAt(3, 10)).toBe(20);
+    expect(layout.tickAt(4, 10)).toBe(30 + BREAK_PX);
   });
 
-  test('seqAtX inverts boundaryX', () => {
-    for (let s = 0; s <= ops.length; s++) expect(layout.seqAtX(layout.boundaryX(s, 10) + 1, 10)).toBe(s);
+  test('seqAt inverts boundaryAt', () => {
+    for (let s = 0; s <= ops.length; s++) expect(layout.seqAt(layout.boundaryAt(s, 10) + 1, 10)).toBe(s);
   });
 });

@@ -1,15 +1,18 @@
 import type { Furniture, ModelObject, Room, Wall } from '../engine/types';
 import { type Bounds, type Camera, toScreen } from './camera';
-
-const WALL_COLOR = '#2a2a27';
-const FURNITURE_STROKE = 'rgba(0, 0, 0, 0.45)';
-const LABEL_COLOR = '#5f5f5a';
+import type { Theme } from './theme';
 
 /**
  * Full ("at rest") render: room fills and labels, furniture in material
  * colours, walls on top. `dpr` is the device pixel ratio of the canvas.
  */
-export function drawModel(ctx: CanvasRenderingContext2D, state: ReadonlyMap<string, ModelObject>, cam: Camera, dpr: number) {
+export function drawModel(
+  ctx: CanvasRenderingContext2D,
+  state: ReadonlyMap<string, ModelObject>,
+  cam: Camera,
+  dpr: number,
+  theme: Theme,
+) {
   const rooms: Room[] = [];
   const walls: Wall[] = [];
   const furniture: Furniture[] = [];
@@ -31,7 +34,7 @@ export function drawModel(ctx: CanvasRenderingContext2D, state: ReadonlyMap<stri
   // Largest first: rugs end up under the beds and sofas standing on them.
   furniture.sort((a, b) => b.geometry.w * b.geometry.h - a.geometry.w * a.geometry.h);
   ctx.lineWidth = hairline;
-  ctx.strokeStyle = FURNITURE_STROKE;
+  ctx.strokeStyle = theme.foreground03;
   for (const f of furniture) {
     traceFurniture(ctx, f);
     ctx.fillStyle = f.style.material;
@@ -39,7 +42,7 @@ export function drawModel(ctx: CanvasRenderingContext2D, state: ReadonlyMap<stri
     ctx.stroke();
   }
 
-  ctx.strokeStyle = WALL_COLOR;
+  ctx.strokeStyle = theme.foreground;
   ctx.lineCap = 'square';
   for (const w of walls) {
     ctx.lineWidth = w.geometry.thickness;
@@ -47,7 +50,7 @@ export function drawModel(ctx: CanvasRenderingContext2D, state: ReadonlyMap<stri
     ctx.stroke();
   }
 
-  drawRoomLabels(ctx, rooms, cam, dpr);
+  drawRoomLabels(ctx, rooms, cam, dpr, theme);
 }
 
 export function traceWall(ctx: CanvasRenderingContext2D, w: Wall) {
@@ -81,10 +84,10 @@ export function traceFurniture(ctx: CanvasRenderingContext2D, f: Furniture) {
 }
 
 /** Labels are drawn in screen space so they stay readable at any zoom. */
-function drawRoomLabels(ctx: CanvasRenderingContext2D, rooms: Room[], cam: Camera, dpr: number) {
+function drawRoomLabels(ctx: CanvasRenderingContext2D, rooms: Room[], cam: Camera, dpr: number, theme: Theme) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = LABEL_COLOR;
-  ctx.font = '500 11px system-ui, sans-serif';
+  ctx.fillStyle = theme.foreground07;
+  ctx.font = `500 11px ${theme.fontSans}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   for (const r of rooms) {

@@ -1,13 +1,60 @@
+/*
+ * Tokens follow kkrll.com/design.md: two grounds (warm paper, near-black),
+ * a base + three-step ramp where the suffix is distance from base, one accent.
+ * `:root` declares every token; `.dark` only overrides.
+ */
 :root {
-  --bg: #f6f6f4;
-  --surface: #ffffff;
-  --fg: #1d1d1b;
-  --muted: #8a8a85;
-  --line: #e2e2dd;
-  --timeline-height: 168px;
-  font-family: system-ui, -apple-system, sans-serif;
-  color: var(--fg);
-  background: var(--bg);
+  color-scheme: light;
+
+  --background: #f1eadf;
+  --background-07: #c8c1bb;
+  --background-05: #a6a29e;
+  --background-03: #8a8580;
+
+  --foreground: #171717;
+  --foreground-07: #1f1f20;
+  --foreground-05: #323235;
+  --foreground-03: #4a4a4d;
+
+  --brand-light: #ffffe3;
+  --brand-dark: #10100e;
+  --brand-text: var(--brand-dark);
+
+  /* Edit kinds and diff states: data encoding, not accents. */
+  --diff-added: #5f8f52;
+  --diff-deleted: #c0533c;
+  --diff-modified: #c99232;
+
+  --font-sans-stack: 'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono-stack: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  --duration-micro: 80ms;
+  --duration-exit: 150ms;
+  --duration-enter: 200ms;
+  --ease-entrance: cubic-bezier(0.32, 0.72, 0, 1);
+
+  --panel-width: 320px;
+}
+
+.dark {
+  color-scheme: dark;
+
+  --background: #0a0a0a;
+  --background-07: #1f1f20;
+  --background-05: #3d3d3f;
+  --background-03: #565658;
+
+  --foreground: #ededed;
+  --foreground-07: #6b6a69;
+  --foreground-05: #4b4a49;
+  --foreground-03: #3a3938;
+
+  --brand-light: #ceccab;
+  --brand-text: var(--brand-light);
+
+  --diff-added: #7fae70;
+  --diff-deleted: #d9694f;
+  --diff-modified: #ddb04f;
 }
 
 html,
@@ -18,9 +65,16 @@ body,
   overflow: hidden;
 }
 
+body {
+  font-family: var(--font-sans-stack);
+  color: var(--foreground);
+  background: var(--background);
+  -webkit-font-smoothing: antialiased;
+}
+
 .app {
   display: grid;
-  grid-template-rows: 1fr var(--timeline-height);
+  grid-template-columns: 1fr var(--panel-width);
   height: 100%;
 }
 
@@ -28,7 +82,7 @@ body,
   display: block;
   width: 100%;
   height: 100%;
-  min-height: 0;
+  min-width: 0;
   touch-action: none;
   cursor: grab;
 }
@@ -37,11 +91,41 @@ body,
   cursor: grabbing;
 }
 
+/* History panel: near-black ground, structure from hairlines only. */
+.history {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+  background: var(--background);
+  color: var(--foreground);
+  border-left: 1px solid var(--foreground-03);
+}
+
+.history-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  padding: 16px;
+}
+
+.history-title {
+  margin: 0;
+  font-size: 0.875rem;
+  font-weight: 500;
+  /* Faint text on dark fails contrast: hierarchy comes from weight instead. */
+}
+
+.history-readout {
+  font-family: var(--font-mono-stack);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 400;
+}
+
 .timeline {
   display: block;
   width: 100%;
   height: 100%;
+  min-height: 0;
   touch-action: none;
-  border-top: 1px solid var(--line);
-  background: var(--surface);
 }

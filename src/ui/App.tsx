@@ -5,7 +5,7 @@ import { groupSessions } from '../engine/sessions';
 import { modelBounds } from '../render/modelRenderer';
 import { cursor } from './cursor';
 import { ModelView } from './ModelView';
-import { Timeline } from './Timeline';
+import { HistoryPanel } from './HistoryPanel';
 
 const dataset = generateDataset(1);
 const history = new History(dataset.ops);
@@ -16,10 +16,13 @@ const sessionEnds = [...new Set(sessions.map((s) => s.endSeq))].sort((a, b) => a
 
 cursor.seq = history.length;
 
+// Time runs upwards in the panel, so Up and Right both mean "newer".
+const KEY_DIRECTION: Record<string, number> = { ArrowRight: 1, ArrowUp: 1, ArrowLeft: -1, ArrowDown: -1 };
+
 function onKeyDown(e: KeyboardEvent) {
-  if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+  const dir = KEY_DIRECTION[e.key];
+  if (!dir) return;
   e.preventDefault();
-  const dir = e.key === 'ArrowRight' ? 1 : -1;
   if (e.shiftKey) {
     const next = dir > 0 ? sessionEnds.find((s) => s > cursor.seq) : sessionEnds.findLast((s) => s < cursor.seq);
     cursor.seq = next ?? (dir > 0 ? history.length : 0);
@@ -35,7 +38,7 @@ export function App() {
   return (
     <div class="app">
       <ModelView history={history} seq={() => cursor.seq} bounds={bounds} />
-      <Timeline ops={dataset.ops} />
+      <HistoryPanel ops={dataset.ops} />
     </div>
   );
 }
