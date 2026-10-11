@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { generateDataset } from './generator';
-import type { ModelObject, ObjectType, State } from './types';
+import type { Furniture, ModelObject, ObjectType, Room, State, Wall } from './types';
 
 const DAY = 86_400_000;
 const FIRST_DAY = Date.UTC(2026, 2, 2);
@@ -116,5 +116,70 @@ describe('generateDataset', () => {
       expect(namedVersions[i].seq).toBeGreaterThan(namedVersions[i - 1].seq);
     }
     expect(namedVersions.at(-1)!.seq).toBeLessThanOrEqual(ops.length);
+  });
+
+  describe('final plan', () => {
+    const all = [...finalState.values()];
+    const walls = all.filter((o): o is Wall => o.type === 'wall');
+    const rooms = all.filter((o): o is Room => o.type === 'room');
+    const furniture = all.filter((o): o is Furniture => o.type === 'furniture');
+
+    it('has axis-aligned walls that are joined at their ends', () => {
+      const near = (p: { x: number; y: number }, q: { x: number; y: number }) =>
+        Math.abs(p.x - q.x) <= 8 && Math.abs(p.y - q.y) <= 8;
+      for (const w of walls) {
+        const { a, b } = w.geometry;
+        expect(a.x === b.x || a.y === b.y).toBe(true);
+        for (const end of [a, b]) {
+          const touching = walls.some((o) => o !== w && [o.geometry.a, o.geometry.b].some((p) => near(p, end)));
+          expect(touching).toBe(true);
+        }
+      }
+    });
+
+    it('has orthogonal room polygons', () => {
+      for (const r of rooms) {
+        const pts = r.geometry.points;
+        expect(pts.length).toBe(4);
+        pts.forEach((p, i) => {
+          const q = pts[(i + 1) % pts.length];
+          expect(p.x === q.x || p.y === q.y).toBe(true);
+        });
+      }
+    });
+
+    it('keeps every furniture centre inside some room', () => {
+      for (const f of furniture) {
+        const { x, y } = f.geometry;
+        const inside = rooms.some((r) => {
+          const xs = r.geometry.points.map((p) => p.x);
+          const ys = r.geometry.points.map((p) => p.y);
+          return x > Math.min(...xs) && x < Math.max(...xs) && y > Math.min(...ys) && y < Math.max(...ys);
+        });
+        expect(inside).toBe(true);
+      }
+    });
+
+    it('only overlaps furniture where intended (rugs, tucked chairs, mirrors)', () => {
+      const soft = /^(Rug|Runner rug|Bathmat|Chair|Stool|Office chair|Outdoor chair|Mirror|Mirror cabinet)$/;
+      const half = (f: Furniture) => {
+        const turned = Math.abs(Math.sin(f.geometry.rotation)) > 0.5;
+        return { hw: (turned ? f.geometry.h : f.geometry.w) / 2, hh: (turned ? f.geometry.w : f.geometry.h) / 2 };
+      };
+      const hard = furniture.filter((f) => !soft.test(f.style.name));
+      for (let i = 0; i < hard.length; i++) {
+        for (let j = i + 1; j < hard.length; j++) {
+          const [a, b] = [half(hard[i]), half(hard[j])];
+          const hit = Math.abs(hard[i].geometry.x - hard[j].geometry.x) < a.hw + b.hw
+            && Math.abs(hard[i].geometry.y - hard[j].geometry.y) < a.hh + b.hh;
+          expect(hit, `${hard[i].id} vs ${hard[j].id}`).toBe(false);
+        }
+      }
+    });
+
+    it('uses mostly quarter-turn rotations', () => {
+      const quarter = furniture.filter((f) => (f.geometry.rotation / (Math.PI / 2)) % 1 === 0);
+      expect(quarter.length).toBe(furniture.length);
+    });
   });
 });

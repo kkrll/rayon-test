@@ -1,11 +1,47 @@
 :root {
   --bg: #f6f6f4;
+  --surface: #ffffff;
   --fg: #1d1d1b;
   --muted: #8a8a85;
-  --line: #dcdcd7;
+  --line: #e2e2dd;
+  --timeline-height: 168px;
   font-family: system-ui, -apple-system, sans-serif;
   color: var(--fg);
   background: var(--bg);
 }
 
-html, body, #root { margin: 0; height: 100%; }
+html,
+body,
+#root {
+  margin: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+.app {
+  display: grid;
+  grid-template-rows: 1fr var(--timeline-height);
+  height: 100%;
+}
+
+.model-view {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  touch-action: none;
+  cursor: grab;
+}
+
+.model-view:active {
+  cursor: grabbing;
+}
+
+.timeline {
+  display: block;
+  width: 100%;
+  height: 100%;
+  touch-action: none;
+  border-top: 1px solid var(--line);
+  background: var(--surface);
+}
