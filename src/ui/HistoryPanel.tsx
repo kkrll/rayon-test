@@ -67,7 +67,13 @@ function SessionCard(props: { hover: SessionHover; session: Session; author: Aut
         {formatDay(props.session.startTs)} · {formatTime(props.session.startTs)}–{formatTime(props.session.endTs)} ·{' '}
         {props.session.seqs.length} edits
       </div>
-      <p class="session-card-summary">{props.hover.preview?.summary ?? '…'}</p>
+      {/* The card truncates with "+2 more"; the hover is where lists expand. */}
+      <dl class="session-card-lists">
+        <dt>Objects</dt>
+        <dd>{props.hover.preview?.summary.objects.join(', ') || '…'}</dd>
+        <dt>Rooms</dt>
+        <dd>{props.hover.preview?.summary.rooms.join(', ') || '—'}</dd>
+      </dl>
       <div class="session-card-meta">{verbs()}</div>
     </div>
   );

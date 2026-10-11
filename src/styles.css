@@ -191,9 +191,23 @@ body {
   font-variant-numeric: tabular-nums;
 }
 
-.session-card-summary {
+.session-card-lists {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 4px 16px;
   margin: 0;
   font-size: 0.875rem;
+}
+
+.session-card-lists dt {
+  font-family: var(--font-mono-stack);
+  font-size: 0.75rem;
+  line-height: 1.6;
+  text-transform: uppercase;
+}
+
+.session-card-lists dd {
+  margin: 0;
 }
 
 .avatar {

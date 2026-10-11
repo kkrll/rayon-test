@@ -1,6 +1,6 @@
 import type { History } from '../engine/history';
 import type { Session } from '../engine/sessions';
-import { type SessionEdit, sessionEdits, summarize } from '../engine/summary';
+import { type SessionEdit, type SessionSummary, sessionEdits, summarize } from '../engine/summary';
 import type { Room } from '../engine/types';
 import { type Bounds, fitCamera } from './camera';
 import { NO_HIGHLIGHT, boundsOf, drawModel, expandBounds } from './modelRenderer';
@@ -16,7 +16,7 @@ const FRAME_MIN_H_CM = 300;
 export interface Preview {
   image: HTMLCanvasElement;
   edits: SessionEdit[];
-  summary: string;
+  summary: SessionSummary;
 }
 
 /**

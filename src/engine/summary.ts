@@ -8,6 +8,8 @@ export interface SessionEdit {
   verb: EditVerb;
   type: ObjectType;
   objectId: string;
+  /** Display name: "Sofa", "Kitchen", "Wall". */
+  name: string;
   /** Room the object sits in (or the room itself), at the end of the session. */
   room: string | null;
 }
@@ -46,7 +48,8 @@ export function sessionEdits(session: Session, ops: Op[], rooms: Room[]): Sessio
   return session.seqs.map((seq) => {
     const op = ops[seq - 1];
     const obj = (op.after ?? op.before)!;
-    return { verb: describeEdit(op), type: obj.type, objectId: op.objectId, room: roomName(obj, rooms) };
+    const name = obj.type === 'wall' ? 'Wall' : obj.style.name;
+    return { verb: describeEdit(op), type: obj.type, objectId: op.objectId, name, room: roomName(obj, rooms) };
   });
 }
 
@@ -70,17 +73,31 @@ function contains(points: Vec[], p: Vec) {
   return inside;
 }
 
-/**
- * One short line for a session card and its hover, e.g.
- * "Moved 12 furniture items, Kitchen".
- *
- * TODO(you): decide what a session "was about". Inputs: every edit's verb,
- * object type and room. Things to weigh:
- *  - lead with the dominant verb, or list the top two ("Moved 8, resized 3")?
- *  - count edits or distinct objects? (a burst nudges one sofa 15 times)
- *  - one room vs. several: "Kitchen", "Kitchen + 2 rooms", or drop it?
- *  - the card has ~140 px; the hover card can afford more.
- */
-export function summarize(edits: SessionEdit[]): string {
-  return `${edits.length} edits`;
+export interface SessionSummary {
+  edits: number;
+  /** Distinct object names, most edited first: ["Sofa", "Table"]. */
+  objects: string[];
+  /** Distinct rooms, most edited first: ["Kitchen", "Bedroom"]. */
+  rooms: string[];
+}
+
+/** What a session was about: how much, which things, where. */
+export function summarize(edits: SessionEdit[]): SessionSummary {
+  return {
+    edits: edits.length,
+    objects: rankByFrequency(edits.map((e) => e.name)),
+    rooms: rankByFrequency(edits.flatMap((e) => (e.room ? [e.room] : []))),
+  };
+}
+
+/** "Kitchen, Bedroom +2 more" — the first `max` items, then a count. */
+export function formatList(items: string[], max: number): string {
+  const shown = items.slice(0, max).join(', ');
+  return items.length > max ? `${shown} +${items.length - max} more` : shown;
+}
+
+function rankByFrequency(values: string[]): string[] {
+  const counts = new Map<string, number>();
+  for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
+  return [...counts].sort((a, b) => b[1] - a[1]).map(([v]) => v);
 }

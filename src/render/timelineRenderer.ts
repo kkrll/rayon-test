@@ -1,4 +1,5 @@
 import type { Session } from '../engine/sessions';
+import { formatList } from '../engine/summary';
 import type { Author, Op, OpKind } from '../engine/types';
 import { dayIndex, formatDay, formatGap, formatMonth, formatTime } from '../ui/format';
 import { type SessionPreviews, THUMB_H, THUMB_W } from './previews';
@@ -385,19 +386,24 @@ function drawCard(ctx: CanvasRenderingContext2D, scene: TimelineScene, card: Car
   ctx.lineWidth = 1;
   ctx.strokeRect(x + 0.5, top + 0.5, THUMB_W - 1, THUMB_H - 1);
 
+  // Three lines: avatar + edits (time on the right), objects, rooms.
   const tx = x + THUMB_W + 10;
+  const right = width - COLUMNS.right;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
   if (author) drawAvatar(ctx, tx + 7, top + 8, 7, author, theme);
-  ctx.font = `400 11px ${theme.fontMono}`;
   ctx.fillStyle = theme.foreground;
-  ctx.fillText(`${formatTime(session.startTs)}–${formatTime(session.endTs)}`, tx + 20, top + 9);
-
   ctx.font = `500 12px ${theme.fontSans}`;
-  ctx.fillText(fit(ctx, preview?.summary ?? '…', width - COLUMNS.right - tx), tx, top + 27);
-
+  ctx.fillText(`${session.seqs.length} edits`, tx + 20, top + 9);
   ctx.font = `400 11px ${theme.fontMono}`;
-  ctx.fillText(`${session.seqs.length} edits`, tx, top + 43);
+  ctx.textAlign = 'right';
+  ctx.fillText(formatTime(session.endTs), right, top + 9);
+  ctx.textAlign = 'left';
+
+  const summary = preview?.summary;
+  ctx.font = `400 12px ${theme.fontSans}`;
+  ctx.fillText(fit(ctx, summary ? formatList(summary.objects, 2) : '…', right - tx), tx, top + 27);
+  ctx.fillText(fit(ctx, summary ? formatList(summary.rooms, 2) : '', right - tx), tx, top + 43);
 }
 
 function drawAvatar(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, author: Author, theme: Theme) {
