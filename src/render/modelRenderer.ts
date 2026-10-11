@@ -4,11 +4,12 @@ import { type Bounds, type Camera, toScreen } from './camera';
 import type { Theme } from './theme';
 
 /**
- * full:    at rest. Room fills and labels, materials, walls on top.
- * outline: while scrubbing. Strokes only, no fills, no labels; objects in
- *          the diff keep their full style so changes stand out.
+ * full:      at rest. Room fills and labels, materials, walls on top.
+ * outline:   while scrubbing. Strokes only, no fills, no labels; objects in
+ *            the diff keep their full style so changes stand out.
+ * thumbnail: full style without labels, for session previews.
  */
-export type RenderMode = 'full' | 'outline';
+export type RenderMode = 'full' | 'outline' | 'thumbnail';
 
 /** The diff since the start of the cursor's session, as the renderer needs it. */
 export interface Highlight {
@@ -47,7 +48,7 @@ export function drawModel(
     else furniture.push(o);
   }
   const changed = (o: ModelObject) => highlight.added.has(o.id) || highlight.modified.has(o.id);
-  const full = (o: ModelObject) => mode === 'full' || changed(o);
+  const full = (o: ModelObject) => mode !== 'outline' || changed(o);
 
   ctx.setTransform(dpr * cam.scale, 0, 0, dpr * cam.scale, dpr * cam.tx, dpr * cam.ty);
   const hairline = 1 / cam.scale;
@@ -65,7 +66,7 @@ export function drawModel(
     }
   }
 
-  if (mode === 'full') {
+  if (mode !== 'outline') {
     // Largest first: rugs end up under the beds and sofas standing on them.
     furniture.sort((a, b) => b.geometry.w * b.geometry.h - a.geometry.w * a.geometry.h);
   }
@@ -210,7 +211,8 @@ function centroid(r: Room) {
   return { x: x / pts.length, y: y / pts.length };
 }
 
-export function modelBounds(state: ReadonlyMap<string, ModelObject>): Bounds {
+/** Bounds of a set of objects (walls, room outlines, furniture footprints). */
+export function boundsOf(objects: Iterable<ModelObject>): Bounds {
   const b: Bounds = { minX: Infinity, minY: Infinity, maxX: -Infinity, maxY: -Infinity };
   const add = (x: number, y: number) => {
     b.minX = Math.min(b.minX, x);
@@ -218,13 +220,26 @@ export function modelBounds(state: ReadonlyMap<string, ModelObject>): Bounds {
     b.maxX = Math.max(b.maxX, x);
     b.maxY = Math.max(b.maxY, y);
   };
-  for (const o of state.values()) {
+  for (const o of objects) {
     if (o.type === 'wall') {
       add(o.geometry.a.x, o.geometry.a.y);
       add(o.geometry.b.x, o.geometry.b.y);
     } else if (o.type === 'room') {
       for (const p of o.geometry.points) add(p.x, p.y);
+    } else {
+      const r = Math.max(o.geometry.w, o.geometry.h) / 2;
+      add(o.geometry.x - r, o.geometry.y - r);
+      add(o.geometry.x + r, o.geometry.y + r);
     }
   }
   return b;
+}
+
+/** Grows bounds by `pad` and to at least `minW` x `minH`, around their centre. */
+export function expandBounds(b: Bounds, pad: number, minW: number, minH: number): Bounds {
+  const cx = (b.minX + b.maxX) / 2;
+  const cy = (b.minY + b.maxY) / 2;
+  const hw = Math.max(minW, b.maxX - b.minX + pad * 2) / 2;
+  const hh = Math.max(minH, b.maxY - b.minY + pad * 2) / 2;
+  return { minX: cx - hw, minY: cy - hh, maxX: cx + hw, maxY: cy + hh };
 }

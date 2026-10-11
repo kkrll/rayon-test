@@ -2,7 +2,7 @@ import { Show, createSignal, onCleanup, onMount } from 'solid-js';
 import { generateDataset } from '../engine/generator';
 import { History } from '../engine/history';
 import { groupSessions } from '../engine/sessions';
-import { modelBounds } from '../render/modelRenderer';
+import { boundsOf } from '../render/modelRenderer';
 import { cursor } from './cursor';
 import { DebugOverlay } from './DebugOverlay';
 import { ModelView } from './ModelView';
@@ -11,7 +11,7 @@ import { HistoryPanel } from './HistoryPanel';
 const dataset = generateDataset(1);
 const history = new History(dataset.ops);
 const sessions = groupSessions(dataset.ops);
-const bounds = modelBounds(history.snapshotAt(history.length));
+const bounds = boundsOf(history.snapshotAt(history.length).values());
 /** Session ends are the display snapshots: Shift+arrow steps between them. */
 const sessionEnds = [...new Set(sessions.map((s) => s.endSeq))].sort((a, b) => a - b);
 
@@ -50,7 +50,7 @@ export function App() {
           <DebugOverlay />
         </Show>
       </main>
-      <HistoryPanel ops={dataset.ops} />
+      <HistoryPanel history={history} sessions={sessions} authors={dataset.authors} bounds={bounds} />
     </div>
   );
 }

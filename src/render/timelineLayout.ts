@@ -2,12 +2,21 @@ import type { Op } from '../engine/types';
 
 export const BREAK_GAP_MS = 2 * 60 * 60 * 1000;
 export const BREAK_PX = 36;
+const MIN_BREAK_PX = 2;
+
+/**
+ * Break size at a zoom level: the full BREAK_PX up close, shrinking when
+ * zoomed out so ~65 overnight breaks don't outweigh the edits themselves.
+ */
+export function breakPx(ppo: number) {
+  return Math.min(BREAK_PX, Math.max(MIN_BREAK_PX, Math.round(ppo * 12)));
+}
 
 /**
  * Layout along the timeline's time axis, in content pixels (before scrolling).
  * Axis-neutral: the renderer decides which screen direction time runs in.
  * Every edit gets the same width (`ppo`, pixels per op); idle gaps longer than
- * BREAK_GAP_MS collapse into a fixed-width break, whatever the zoom.
+ * BREAK_GAP_MS collapse into a fixed-size break (see breakPx).
  *
  * Positions are "boundaries": boundary s is the point after op s, which is
  * where the cursor sits for getStateAt(s). Op k occupies [boundary k-1, k].
@@ -30,12 +39,12 @@ export class TimelineLayout {
   }
 
   boundaryAt(s: number, ppo: number) {
-    return s * ppo + this.breaksBefore[s] * BREAK_PX;
+    return s * ppo + this.breaksBefore[s] * breakPx(ppo);
   }
 
   /** Left edge of op k's slot (it sits after any break at boundary k-1). */
   tickAt(k: number, ppo: number) {
-    return (k - 1) * ppo + this.breaksBefore[k] * BREAK_PX;
+    return (k - 1) * ppo + this.breaksBefore[k] * breakPx(ppo);
   }
 
   length(ppo: number) {

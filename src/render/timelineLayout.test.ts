@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'vitest';
 import type { Op } from '../engine/types';
-import { BREAK_PX, TimelineLayout } from './timelineLayout';
+import { BREAK_PX, TimelineLayout, breakPx } from './timelineLayout';
 
 const HOUR = 3_600_000;
 const ops = [0, 1, 2, 10, 11].map((minute, i): Op => ({
@@ -19,7 +19,13 @@ describe('TimelineLayout', () => {
   test('collapses idle gaps over 2 h into one fixed-width break', () => {
     expect(layout.breaks).toEqual([3]);
     expect(layout.length(10)).toBe(5 * 10 + BREAK_PX);
-    expect(layout.length(2)).toBe(5 * 2 + BREAK_PX);
+  });
+
+  test('breaks keep full size up close and shrink when zoomed out', () => {
+    expect(breakPx(6)).toBe(BREAK_PX);
+    expect(breakPx(1)).toBe(12);
+    expect(breakPx(0.03)).toBe(2);
+    expect(layout.length(1)).toBe(5 * 1 + 12);
   });
 
   test('ticks after a break are shifted by the break width', () => {

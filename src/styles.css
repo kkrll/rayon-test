@@ -162,3 +162,47 @@ body {
   justify-content: space-between;
   gap: 16px;
 }
+
+/* Hover details for a session; floats over the canvas, left of the panel. */
+.session-card {
+  position: fixed;
+  right: calc(var(--panel-width) + 8px);
+  width: 260px;
+  display: grid;
+  gap: 8px;
+  padding: 16px;
+  border-radius: 8px;
+  background: var(--background);
+  color: var(--foreground);
+  pointer-events: none;
+}
+
+.session-card-author {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.session-card-meta {
+  font-family: var(--font-mono-stack);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.session-card-summary {
+  margin: 0;
+  font-size: 0.875rem;
+}
+
+.avatar {
+  display: inline-grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 100rem;
+  color: var(--background);
+  font-size: 0.625rem;
+  font-weight: 600;
+}
