@@ -85,13 +85,13 @@ export function App() {
                 onClick={() => select(p.id)}
               >
                 {p.name}
-                <span class="project-kind">{p.kind}</span>
+                {/* While a project loads, a spinner takes its kind's place (same width: no jump). */}
+                <span class="project-kind" aria-busy={project.loading && projectId() === p.id}>
+                  {p.kind}
+                </span>
               </button>
             )}
           </For>
-          <Show when={project.loading}>
-            <span class="project-loading">Loading…</span>
-          </Show>
         </nav>
         <Show when={project()}>
           {(p) => (

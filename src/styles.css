@@ -169,14 +169,33 @@ body {
   color: var(--foreground);
 }
 
-.project-kind,
-.project-loading {
+.project-kind {
+  position: relative;
   color: var(--foreground-07);
   font-weight: 400;
 }
 
-.project-loading {
-  padding: 0 8px;
+.project-kind[aria-busy='true'] {
+  color: transparent;
+}
+
+.project-kind[aria-busy='true']::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  width: 10px;
+  height: 10px;
+  margin: auto;
+  border: 1.25px solid var(--foreground-07);
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(1turn);
+  }
 }
 
 /*
@@ -641,7 +660,7 @@ body {
     left: 8px;
   }
 
-  .project-kind {
+  .project-kind:not([aria-busy='true']) {
     display: none;
   }
 
