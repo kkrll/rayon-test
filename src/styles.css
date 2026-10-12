@@ -10,6 +10,7 @@
   --background-07: #c8c1bb;
   --background-05: #a6a29e;
   --background-03: #8a8580;
+  --paper: #faf6ef;
 
   --foreground: #171717;
   --foreground-07: #1f1f20;
@@ -43,6 +44,7 @@
   --background-07: #1f1f20;
   --background-05: #3d3d3f;
   --background-03: #565658;
+  --paper: #141414;
 
   --foreground: #ededed;
   --foreground-07: #6b6a69;
@@ -96,6 +98,79 @@ body {
   cursor: grabbing;
 }
 
+.device-view {
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+}
+
+.device-canvas {
+  display: block;
+  touch-action: none;
+  cursor: grab;
+}
+
+.device-canvas:active {
+  cursor: grabbing;
+}
+
+/* Project switcher: floats over the canvas, top left. */
+.projects {
+  position: absolute;
+  top: 16px;
+  left: 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--background-07);
+  border-radius: 8px;
+  background: var(--background);
+}
+
+.project-tab {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 4px;
+  background: none;
+  color: var(--foreground);
+  font: 500 0.875rem var(--font-sans-stack);
+  cursor: pointer;
+  transition: background var(--duration-micro);
+}
+
+.project-tab:hover {
+  background: var(--background-07);
+}
+
+.project-tab[aria-pressed='true'] {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.project-kind,
+.project-loading {
+  font-family: var(--font-mono-stack);
+  font-size: 0.75rem;
+  font-weight: 400;
+}
+
+.project-loading {
+  padding: 0 8px;
+}
+
+.stage-message {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono-stack);
+  font-size: 0.75rem;
+}
+
 /* History panel: near-black ground, structure from hairlines only. */
 .history {
   display: grid;
@@ -142,7 +217,7 @@ body {
 
 .debug {
   position: absolute;
-  top: 16px;
+  bottom: 16px;
   left: 16px;
   display: grid;
   gap: 4px;

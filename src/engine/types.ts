@@ -1,4 +1,4 @@
-// World units are centimetres. Objects are immutable: an edit replaces the
+// Plan units are centimetres, device units millimetres. Objects are immutable: an edit replaces the
 // whole object, so `before`/`after` on an Op can be stored by reference.
 
 export interface Vec {
@@ -28,7 +28,23 @@ export interface Furniture {
   style: { name: string; material: string };
 }
 
-export type ModelObject = Wall | Room | Furniture;
+/** One part of a 3D device: a piece of the source model, placed and finished. */
+export interface Part {
+  id: string;
+  type: 'part';
+  // `source` names the geometry in the model file; `offset` (mm) is relative
+  // to where the part sits in the finished model.
+  geometry: { source: string; offset: Vec3 };
+  style: { name: string; assembly: string; finish: string };
+}
+
+export interface Vec3 {
+  x: number;
+  y: number;
+  z: number;
+}
+
+export type ModelObject = Wall | Room | Furniture | Part;
 export type ObjectType = ModelObject['type'];
 
 export type OpKind = 'create' | 'update' | 'delete';

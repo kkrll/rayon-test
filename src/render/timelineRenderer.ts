@@ -386,7 +386,7 @@ function drawCard(ctx: CanvasRenderingContext2D, scene: TimelineScene, card: Car
   ctx.lineWidth = 1;
   ctx.strokeRect(x + 0.5, top + 0.5, THUMB_W - 1, THUMB_H - 1);
 
-  // Three lines: avatar + edits (time on the right), objects, rooms.
+  // Three lines: avatar + edits (time on the right), objects, areas.
   const tx = x + THUMB_W + 10;
   const right = width - COLUMNS.right;
   ctx.textBaseline = 'middle';
@@ -403,7 +403,7 @@ function drawCard(ctx: CanvasRenderingContext2D, scene: TimelineScene, card: Car
   const summary = preview?.summary;
   ctx.font = `400 12px ${theme.fontSans}`;
   ctx.fillText(fit(ctx, summary ? formatList(summary.objects, 2) : '…', right - tx), tx, top + 27);
-  ctx.fillText(fit(ctx, summary ? formatList(summary.rooms, 2) : '', right - tx), tx, top + 43);
+  ctx.fillText(fit(ctx, summary ? formatList(summary.areas, 2) : '', right - tx), tx, top + 43);
 }
 
 function drawAvatar(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, author: Author, theme: Theme) {

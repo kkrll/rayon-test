@@ -8,10 +8,13 @@ export interface SessionEdit {
   verb: EditVerb;
   type: ObjectType;
   objectId: string;
-  /** Display name: "Sofa", "Kitchen", "Wall". */
+  /** Display name: "Sofa", "Kitchen", "Wall", "Keycaps". */
   name: string;
-  /** Room the object sits in (or the room itself), at the end of the session. */
-  room: string | null;
+  /**
+   * Where the edit happened: the room an object sits in (or the room itself)
+   * at the end of the session, or a device part's assembly.
+   */
+  area: string | null;
 }
 
 export function describeEdit(op: Op): EditVerb {
@@ -35,6 +38,10 @@ export function describeEdit(op: Op): EditVerb {
     const sameShift = dax === a.b.x - b.b.x && day === a.b.y - b.b.y;
     return sameShift && (dax !== 0 || day !== 0) ? 'moved' : 'reshaped';
   }
+  if (before.type === 'part' && after.type === 'part') {
+    const [b, a] = [before.geometry.offset, after.geometry.offset];
+    return a.x !== b.x || a.y !== b.y || a.z !== b.z ? 'moved' : 'restyled';
+  }
   if (before.type === 'room' && after.type === 'room') {
     if (before.style.name !== after.style.name) return 'renamed';
     if (before.style.fill !== after.style.fill) return 'restyled';
@@ -43,17 +50,18 @@ export function describeEdit(op: Op): EditVerb {
   return 'reshaped';
 }
 
-/** Classifies every edit of a session; `rooms` is the room layout at its end. */
+/** Classifies every edit of a session; `rooms` is the room layout at its end (if any). */
 export function sessionEdits(session: Session, ops: Op[], rooms: Room[]): SessionEdit[] {
   return session.seqs.map((seq) => {
     const op = ops[seq - 1];
     const obj = (op.after ?? op.before)!;
     const name = obj.type === 'wall' ? 'Wall' : obj.style.name;
-    return { verb: describeEdit(op), type: obj.type, objectId: op.objectId, name, room: roomName(obj, rooms) };
+    return { verb: describeEdit(op), type: obj.type, objectId: op.objectId, name, area: areaOf(obj, rooms) };
   });
 }
 
-function roomName(obj: ModelObject, rooms: Room[]): string | null {
+function areaOf(obj: ModelObject, rooms: Room[]): string | null {
+  if (obj.type === 'part') return obj.style.assembly;
   if (obj.type === 'room') return obj.style.name;
   const p = obj.type === 'wall' ? midpoint(obj.geometry.a, obj.geometry.b) : obj.geometry;
   return rooms.find((r) => contains(r.geometry.points, p))?.style.name ?? null;
@@ -77,8 +85,8 @@ export interface SessionSummary {
   edits: number;
   /** Distinct object names, most edited first: ["Sofa", "Table"]. */
   objects: string[];
-  /** Distinct rooms, most edited first: ["Kitchen", "Bedroom"]. */
-  rooms: string[];
+  /** Distinct areas (rooms, assemblies), most edited first: ["Kitchen", "Bedroom"]. */
+  areas: string[];
 }
 
 /** What a session was about: how much, which things, where. */
@@ -86,7 +94,7 @@ export function summarize(edits: SessionEdit[]): SessionSummary {
   return {
     edits: edits.length,
     objects: rankByFrequency(edits.map((e) => e.name)),
-    rooms: rankByFrequency(edits.flatMap((e) => (e.room ? [e.room] : []))),
+    areas: rankByFrequency(edits.flatMap((e) => (e.area ? [e.area] : []))),
   };
 }
 

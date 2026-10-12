@@ -18,3 +18,13 @@ export function createRng(seed: number) {
 }
 
 export type Rng = ReturnType<typeof createRng>;
+
+/** Picks a value with probability proportional to its weight. */
+export function weighted<T>(rng: Rng, entries: [T, number][]): T {
+  let r = rng.next() * entries.reduce((sum, [, w]) => sum + w, 0);
+  for (const [value, w] of entries) {
+    r -= w;
+    if (r < 0) return value;
+  }
+  return entries[entries.length - 1][0];
+}

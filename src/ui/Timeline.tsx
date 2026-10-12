@@ -2,9 +2,8 @@ import { onCleanup, onMount } from 'solid-js';
 import type { History } from '../engine/history';
 import type { Session } from '../engine/sessions';
 import type { Author } from '../engine/types';
-import type { Bounds } from '../render/camera';
 import { FRAME_ORDER, onFrame } from '../render/frameLoop';
-import { type Preview, SessionPreviews } from '../render/previews';
+import { type DrawThumbnail, type Preview, SessionPreviews } from '../render/previews';
 import { assignLanes } from '../render/sessionLayout';
 import { stats } from '../render/stats';
 import { type Theme, readTheme } from '../render/theme';
@@ -30,8 +29,8 @@ interface Props {
   history: History;
   sessions: Session[];
   authors: Author[];
-  /** Model framing, shared with the canvas so thumbnails match it. */
-  bounds: Bounds;
+  /** Draws session thumbnails; given the model (canvas) theme. */
+  thumbnails: (theme: Theme) => DrawThumbnail;
   /** Called at most once per frame, after the strip was drawn at a new seq. */
   onSeqDrawn?: (seq: number) => void;
   onHover?: (hover: SessionHover | null) => void;
@@ -203,7 +202,7 @@ export function Timeline(props: Props) {
       sessions: props.sessions,
       lanes: assignLanes(props.sessions),
       authors: new Map(props.authors.map((a) => [a.id, a])),
-      previews: new SessionPreviews(props.history, props.sessions, props.bounds, modelTheme),
+      previews: new SessionPreviews(props.history, props.sessions, props.thumbnails(modelTheme), modelTheme),
     };
     const observer = new ResizeObserver(resize);
     observer.observe(canvas);

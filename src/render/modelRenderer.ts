@@ -1,32 +1,18 @@
-import type { Diff } from '../engine/history';
 import type { Furniture, ModelObject, Room, Wall } from '../engine/types';
-import { type Bounds, type Camera, toScreen } from './camera';
+import { type Bounds, type Camera } from './camera';
+import { isRound, isSoft, traceSymbol } from './furnitureSymbols';
+import type { Highlight } from './highlight';
+import { drawDimensions, drawRoomLabels, drawScaleBar } from './planAnnotations';
 import type { Theme } from './theme';
 
 /**
- * full:      at rest. Room fills and labels, materials, walls on top.
+ * full:      at rest. A drawing sheet: floors, furniture symbols, solid
+ *            walls, dimensions, room labels with areas, scale bar.
  * outline:   while scrubbing. Strokes only, no fills, no labels; objects in
  *            the diff keep their full style so changes stand out.
- * thumbnail: full style without labels, for session previews.
+ * thumbnail: full style without annotations or details, for session previews.
  */
 export type RenderMode = 'full' | 'outline' | 'thumbnail';
-
-/** The diff since the start of the cursor's session, as the renderer needs it. */
-export interface Highlight {
-  added: Set<string>;
-  modified: Set<string>;
-  deleted: ModelObject[]; // drawn as ghosts, as they were before deletion
-}
-
-export const NO_HIGHLIGHT: Highlight = { added: new Set(), modified: new Set(), deleted: [] };
-
-export function toHighlight(diff: Diff): Highlight {
-  return {
-    added: new Set(diff.added.map((o) => o.id)),
-    modified: new Set(diff.modified.map((o) => o.id)),
-    deleted: diff.deleted,
-  };
-}
 
 const HIGHLIGHT_PX = 2;
 
@@ -45,7 +31,7 @@ export function drawModel(
   for (const o of state.values()) {
     if (o.type === 'room') rooms.push(o);
     else if (o.type === 'wall') walls.push(o);
-    else furniture.push(o);
+    else if (o.type === 'furniture') furniture.push(o);
   }
   const changed = (o: ModelObject) => highlight.added.has(o.id) || highlight.modified.has(o.id);
   const full = (o: ModelObject) => mode !== 'outline' || changed(o);
@@ -53,13 +39,18 @@ export function drawModel(
   ctx.setTransform(dpr * cam.scale, 0, 0, dpr * cam.scale, dpr * cam.tx, dpr * cam.ty);
   const hairline = 1 / cam.scale;
   ctx.lineWidth = hairline;
+  ctx.lineJoin = 'round';
   ctx.setLineDash([]);
 
+  // Floors: the room's colour as a faint wash, then its floor pattern.
   for (const r of rooms) {
     traceRoom(ctx, r);
     if (full(r)) {
       ctx.fillStyle = r.style.fill;
+      ctx.globalAlpha = ROOM_WASH;
       ctx.fill();
+      ctx.globalAlpha = 1;
+      if (mode !== 'thumbnail') drawFloor(ctx, r, cam, theme);
     } else {
       ctx.strokeStyle = theme.foreground03;
       ctx.stroke();
@@ -70,35 +61,125 @@ export function drawModel(
     // Largest first: rugs end up under the beds and sofas standing on them.
     furniture.sort((a, b) => b.geometry.w * b.geometry.h - a.geometry.w * a.geometry.h);
   }
-  ctx.strokeStyle = theme.foreground03;
   for (const f of furniture) {
-    traceFurniture(ctx, f);
-    if (full(f)) {
-      ctx.fillStyle = f.style.material;
-      ctx.fill();
+    if (full(f)) drawFurniture(ctx, f, cam, theme, mode !== 'thumbnail');
+    else {
+      ctx.strokeStyle = theme.foreground03;
+      ctx.lineWidth = hairline;
+      traceFurniture(ctx, f);
+      ctx.stroke();
     }
-    ctx.stroke();
   }
 
+  // Solid walls with no outline, so overlapping pieces merge into one poché.
+  // One fill per wall: in a shared path, opposite windings would cut holes.
+  ctx.fillStyle = theme.foreground;
   for (const w of walls) {
-    if (full(w)) {
-      ctx.strokeStyle = theme.foreground;
-      ctx.lineCap = 'square';
-      ctx.lineWidth = w.geometry.thickness;
-      traceWall(ctx, w);
-    } else {
-      // A centreline reads cleaner than two footprint edges meeting at joints.
-      ctx.strokeStyle = theme.foreground05;
-      ctx.lineCap = 'butt';
-      ctx.lineWidth = 1.5 * hairline;
-      traceWall(ctx, w);
-    }
-    ctx.stroke();
+    if (!full(w)) continue;
+    traceWallOutline(ctx, w);
+    ctx.fill();
   }
+  // Scrubbing: a centreline reads cleaner than footprint edges meeting at joints.
+  ctx.beginPath();
+  for (const w of walls) if (!full(w)) traceWall(ctx, w, false);
+  ctx.strokeStyle = theme.foreground05;
+  ctx.lineCap = 'butt';
+  ctx.lineWidth = 1.5 * hairline;
+  ctx.stroke();
 
   drawHighlight(ctx, state, cam, theme, highlight);
-  if (mode === 'full') drawRoomLabels(ctx, rooms, cam, dpr, theme);
+  if (mode === 'full') {
+    drawDimensions(ctx, rooms, walls, cam, dpr, theme);
+    drawRoomLabels(ctx, rooms, cam, dpr, theme);
+    drawScaleBar(ctx, cam, dpr, theme);
+  }
 }
+
+const ROOM_WASH = 0.18;
+const MATERIAL_WASH = 0.15;
+/** Details below this size (screen px) would only be noise. */
+const DETAIL_MIN_PX = 14;
+
+type Floor = 'planks' | 'tiles' | 'deck' | null;
+const FLOORS: Record<string, Floor> = {
+  Living: 'planks', 'Living room': 'planks', Dining: 'planks', 'Dining area': 'planks',
+  Study: 'planks', 'Home office': 'planks', Bedroom: 'planks', 'Master bedroom': 'planks',
+  'Bedroom 2': 'planks', 'Guest room': 'planks', Hall: 'planks', Entrance: 'planks',
+  Kitchen: 'tiles', Kitchenette: 'tiles', Bathroom: 'tiles', Bath: 'tiles', WC: 'tiles', 'Guest WC': 'tiles',
+  Balcony: 'deck', Terrace: 'deck',
+};
+
+/** Planks (15 cm, staggered joints), 30 cm tiles or 12 cm decking, clipped to the room. */
+function drawFloor(ctx: CanvasRenderingContext2D, r: Room, cam: Camera, theme: Theme) {
+  const floor = FLOORS[r.style.name];
+  const step = floor === 'tiles' ? 30 : floor === 'deck' ? 12 : 15;
+  if (!floor || step * cam.scale < 4) return;
+  const { minX, minY, maxX, maxY } = boundsOf([r]);
+  ctx.save();
+  traceRoom(ctx, r);
+  ctx.clip();
+  ctx.beginPath();
+  for (let y = Math.ceil(minY / step) * step; y < maxY; y += step) {
+    ctx.moveTo(minX, y);
+    ctx.lineTo(maxX, y);
+  }
+  if (floor === 'tiles') {
+    for (let x = Math.ceil(minX / step) * step; x < maxX; x += step) {
+      ctx.moveTo(x, minY);
+      ctx.lineTo(x, maxY);
+    }
+  } else if (floor === 'planks' && 120 * cam.scale > 24) {
+    // Butt joints, offset row by row.
+    for (let y = Math.floor(minY / step) * step, row = 0; y < maxY; y += step, row++) {
+      for (let x = Math.floor(minX / 120) * 120 + ((row * 47) % 120); x < maxX; x += 120) {
+        ctx.moveTo(x, y);
+        ctx.lineTo(x, y + step);
+      }
+    }
+  }
+  ctx.strokeStyle = theme.foreground;
+  ctx.globalAlpha = 0.09;
+  ctx.lineWidth = 1 / cam.scale;
+  ctx.stroke();
+  ctx.globalAlpha = 1;
+  ctx.restore();
+}
+
+/** Paper body with softened corners, a hint of its material, then its symbol. */
+function drawFurniture(ctx: CanvasRenderingContext2D, f: Furniture, cam: Camera, theme: Theme, details: boolean) {
+  const { x, y, w, h, rotation } = f.geometry;
+  const soft = isSoft(f);
+  const radius = Math.min(4, w / 4, h / 4);
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(rotation);
+  ctx.beginPath();
+  if (isRound(f)) ctx.arc(0, 0, Math.min(w, h) / 2, 0, Math.PI * 2);
+  else ctx.roundRect(-w / 2, -h / 2, w, h, soft ? 0 : radius);
+  ctx.restore();
+
+  if (!soft) {
+    ctx.fillStyle = theme.paper;
+    ctx.fill();
+  }
+  ctx.fillStyle = f.style.material;
+  ctx.globalAlpha = MATERIAL_WASH;
+  ctx.fill();
+  ctx.globalAlpha = 1;
+  ctx.strokeStyle = theme.foreground;
+  ctx.lineWidth = 1 / cam.scale;
+  if (soft) ctx.setLineDash([4 / cam.scale, 3 / cam.scale]);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  if (details && Math.min(w, h) * cam.scale >= DETAIL_MIN_PX && traceSymbol(ctx, f)) {
+    ctx.lineWidth = 0.75 / cam.scale;
+    ctx.stroke();
+  }
+}
+
+/** Room around the plan at rest: dimension chains outside, scale bar below. */
+export const PLAN_PADDING_PX = 96;
 
 /** Diff colours on top of everything. Deletions are dashed: never colour alone. */
 function drawHighlight(
@@ -139,12 +220,13 @@ function drawHighlight(
 function traceOutline(ctx: CanvasRenderingContext2D, o: ModelObject) {
   if (o.type === 'wall') traceWallOutline(ctx, o);
   else if (o.type === 'room') traceRoom(ctx, o);
-  else traceFurniture(ctx, o);
+  else if (o.type === 'furniture') traceFurniture(ctx, o);
+  else ctx.beginPath(); // device parts have no plan footprint
 }
 
-export function traceWall(ctx: CanvasRenderingContext2D, w: Wall) {
+export function traceWall(ctx: CanvasRenderingContext2D, w: Wall, begin = true) {
   const { a, b } = w.geometry;
-  ctx.beginPath();
+  if (begin) ctx.beginPath();
   ctx.moveTo(a.x, a.y);
   ctx.lineTo(b.x, b.y);
 }
@@ -174,6 +256,11 @@ export function traceRoom(ctx: CanvasRenderingContext2D, r: Room) {
 
 export function traceFurniture(ctx: CanvasRenderingContext2D, f: Furniture) {
   const { x, y, w, h, rotation } = f.geometry;
+  if (isRound(f)) {
+    ctx.beginPath();
+    ctx.arc(x, y, Math.min(w, h) / 2, 0, Math.PI * 2);
+    return;
+  }
   const cos = Math.cos(rotation);
   const sin = Math.sin(rotation);
   const hw = w / 2;
@@ -185,30 +272,6 @@ export function traceFurniture(ctx: CanvasRenderingContext2D, f: Furniture) {
   ctx.lineTo(x + hw * cos - hh * sin, y + hw * sin + hh * cos);
   ctx.lineTo(x - hw * cos - hh * sin, y - hw * sin + hh * cos);
   ctx.closePath();
-}
-
-/** Labels are drawn in screen space so they stay readable at any zoom. */
-function drawRoomLabels(ctx: CanvasRenderingContext2D, rooms: Room[], cam: Camera, dpr: number, theme: Theme) {
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  ctx.fillStyle = theme.foreground07;
-  ctx.font = `500 11px ${theme.fontSans}`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  for (const r of rooms) {
-    const p = toScreen(cam, centroid(r));
-    ctx.fillText(r.style.name, p.x, p.y);
-  }
-}
-
-function centroid(r: Room) {
-  const pts = r.geometry.points;
-  let x = 0;
-  let y = 0;
-  for (const p of pts) {
-    x += p.x;
-    y += p.y;
-  }
-  return { x: x / pts.length, y: y / pts.length };
 }
 
 /** Bounds of a set of objects (walls, room outlines, furniture footprints). */
@@ -226,7 +289,7 @@ export function boundsOf(objects: Iterable<ModelObject>): Bounds {
       add(o.geometry.b.x, o.geometry.b.y);
     } else if (o.type === 'room') {
       for (const p of o.geometry.points) add(p.x, p.y);
-    } else {
+    } else if (o.type === 'furniture') {
       const r = Math.max(o.geometry.w, o.geometry.h) / 2;
       add(o.geometry.x - r, o.geometry.y - r);
       add(o.geometry.x + r, o.geometry.y + r);

@@ -2,7 +2,8 @@ import { Show, createSignal } from 'solid-js';
 import type { History } from '../engine/history';
 import type { Session } from '../engine/sessions';
 import type { Author } from '../engine/types';
-import type { Bounds } from '../render/camera';
+import type { DrawThumbnail } from '../render/previews';
+import type { Theme } from '../render/theme';
 import { formatDay, formatTime } from './format';
 import { type SessionHover, Timeline } from './Timeline';
 
@@ -10,7 +11,9 @@ interface Props {
   history: History;
   sessions: Session[];
   authors: Author[];
-  bounds: Bounds;
+  thumbnails: (theme: Theme) => DrawThumbnail;
+  /** What summaries call the places edits happen in: "Rooms", "Assemblies". */
+  areaLabel: string;
 }
 
 export function HistoryPanel(props: Props) {
@@ -36,19 +39,26 @@ export function HistoryPanel(props: Props) {
         history={props.history}
         sessions={props.sessions}
         authors={props.authors}
-        bounds={props.bounds}
+        thumbnails={props.thumbnails}
         onSeqDrawn={setSeq}
         onHover={setHover}
       />
       <Show when={hover()}>
-        {(h) => <SessionCard hover={h()} session={props.sessions[h().index]} author={authorById.get(props.sessions[h().index].authorId)} />}
+        {(h) => (
+          <SessionCard
+            hover={h()}
+            session={props.sessions[h().index]}
+            author={authorById.get(props.sessions[h().index].authorId)}
+            areaLabel={props.areaLabel}
+          />
+        )}
       </Show>
     </aside>
   );
 }
 
 /** Hover details for a session, floating left of the panel. */
-function SessionCard(props: { hover: SessionHover; session: Session; author: Author | undefined }) {
+function SessionCard(props: { hover: SessionHover; session: Session; author: Author | undefined; areaLabel: string }) {
   const verbs = () => {
     const counts = new Map<string, number>();
     for (const e of props.hover.preview?.edits ?? []) counts.set(e.verb, (counts.get(e.verb) ?? 0) + 1);
@@ -71,8 +81,8 @@ function SessionCard(props: { hover: SessionHover; session: Session; author: Aut
       <dl class="session-card-lists">
         <dt>Objects</dt>
         <dd>{props.hover.preview?.summary.objects.join(', ') || '…'}</dd>
-        <dt>Rooms</dt>
-        <dd>{props.hover.preview?.summary.rooms.join(', ') || '—'}</dd>
+        <dt>{props.areaLabel}</dt>
+        <dd>{props.hover.preview?.summary.areas.join(', ') || '—'}</dd>
       </dl>
       <div class="session-card-meta">{verbs()}</div>
     </div>

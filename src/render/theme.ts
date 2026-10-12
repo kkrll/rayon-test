@@ -6,6 +6,8 @@ export interface Theme {
   background: string;
   background07: string;
   background05: string;
+  /** Lighter than the ground: furniture bodies on a drawing sheet. */
+  paper: string;
   foreground: string;
   foreground07: string;
   foreground05: string;
@@ -25,6 +27,7 @@ export function readTheme(el: Element): Theme {
     background: v('--background'),
     background07: v('--background-07'),
     background05: v('--background-05'),
+    paper: v('--paper'),
     foreground: v('--foreground'),
     foreground07: v('--foreground-07'),
     foreground05: v('--foreground-05'),

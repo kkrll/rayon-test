@@ -5,10 +5,13 @@
 // decide each concrete edit from the current state, the project phase and the
 // session's "focus" room. `before` therefore always comes from live state.
 
-import { createRng, type Rng } from './rng';
+import { createRng, type Rng, weighted } from './rng';
 import type {
   Author, Dataset, Furniture, ModelObject, NamedVersion, ObjectType, Op, Room, State, Vec, Wall,
 } from './types';
+
+/** The floor plan only has these; device parts come from generator3d. */
+type PlanType = Exclude<ObjectType, 'part'>;
 
 // ---------------------------------------------------------------- time
 
@@ -183,15 +186,6 @@ const ROOMS: RoomPlan[] = [
 const clamp = (v: number, lo: number, hi: number) => (lo > hi ? (lo + hi) / 2 : Math.min(hi, Math.max(lo, v)));
 const same = (a: ModelObject, b: ModelObject) => JSON.stringify(a) === JSON.stringify(b);
 
-function weighted<T>(rng: Rng, entries: [T, number][]): T {
-  let r = rng.next() * entries.reduce((sum, [, w]) => sum + w, 0);
-  for (const [value, w] of entries) {
-    r -= w;
-    if (r < 0) return value;
-  }
-  return entries[entries.length - 1][0];
-}
-
 function signedStep(rng: Rng, min: number, max: number): number {
   return rng.int(min, max) * (rng.chance(0.5) ? 1 : -1);
 }
@@ -345,7 +339,7 @@ type Action =
 /** A chosen edit. dx/dy are generic deltas; `which` picks an endpoint or room edge. */
 interface Pick { action: Action; id: string; dx: number; dy: number; which: number }
 
-const ACTIONS: Record<ObjectType, [Action, number][]> = {
+const ACTIONS: Record<PlanType, [Action, number][]> = {
   wall: [['wallMove', 0.3], ['thickness', 0.65], ['wallLength', 0.05]],
   room: [['rename', 0.3], ['fill', 0.4], ['edge', 0.3]],
   furniture: [['move', 0.55], ['rotate', 0.12], ['resize', 0.13], ['material', 0.15], ['delete', 0.05]],
@@ -353,7 +347,7 @@ const ACTIONS: Record<ObjectType, [Action, number][]> = {
 // Only these make sense as a burst of repeated nudges on one object.
 const REPEATABLE = new Set<Action>(['wallMove', 'edge', 'move', 'resize']);
 
-function typeWeights(day: number): [ObjectType, number][] {
+function typeWeights(day: number): [PlanType, number][] {
   if (day < 8) return [['wall', 1]];
   if (day < 21) return [['wall', 0.1], ['room', 0.9]];
   return [['wall', 0.03], ['room', 0.1], ['furniture', 0.87]];
@@ -498,7 +492,7 @@ class Editor {
 
   // ---- creation
 
-  private isDue(type: ObjectType, day: number): boolean {
+  private isDue(type: PlanType, day: number): boolean {
     const { from, to } = PACE[type];
     const expected = Math.ceil(this.total[type] * clamp((day - from) / (to - from), 0, 1));
     return this.created[type] < expected;
@@ -513,7 +507,7 @@ class Editor {
     return false;
   }
 
-  private nextId(type: ObjectType): string {
+  private nextId(type: PlanType): string {
     const prefix = { wall: 'w', room: 'r', furniture: 'f' }[type];
     this.nextIdNumber[type] += 1;
     return `${prefix}${this.nextIdNumber[type]}`;
@@ -606,9 +600,9 @@ class Editor {
 
   // ---- tweaks
 
-  private liveByType(): Record<ObjectType, ModelObject[]> {
-    const groups: Record<ObjectType, ModelObject[]> = { wall: [], room: [], furniture: [] };
-    for (const obj of this.live.values()) groups[obj.type].push(obj);
+  private liveByType(): Record<PlanType, ModelObject[]> {
+    const groups: Record<PlanType, ModelObject[]> = { wall: [], room: [], furniture: [] };
+    for (const obj of this.live.values()) groups[obj.type as PlanType].push(obj);
     return groups;
   }
 
@@ -631,7 +625,7 @@ class Editor {
   }
 
   /** Bursts nudge by a few cm; single edits are bigger (walls 5-20 cm, room edges a few cm). */
-  private stepSize(type: ObjectType, burst: boolean): number {
+  private stepSize(type: PlanType, burst: boolean): number {
     if (burst || type === 'room') return signedStep(this.rng, 1, 4);
     return type === 'wall' ? signedStep(this.rng, 5, 20) : signedStep(this.rng, 1, MOVE_LIMIT);
   }
@@ -800,11 +794,14 @@ const VERSION_DAYS: [name: string, day: number][] = [
   ['Final for permit', LAST_DAY],
 ];
 
-/** The last op before midnight of a day always closes a session. */
-function nameVersions(ops: Op[]): NamedVersion[] {
+/**
+ * Names the last op of each listed day (counted from `start`). The last op
+ * before midnight always closes a session.
+ */
+export function nameVersions(ops: Op[], start: number, days: [name: string, day: number][]): NamedVersion[] {
   const versions: NamedVersion[] = [];
-  for (const [name, day] of VERSION_DAYS) {
-    const limit = START + (day + 1) * DAY;
+  for (const [name, day] of days) {
+    const limit = start + (day + 1) * DAY;
     let seq = 0;
     for (const op of ops) if (op.ts < limit) seq = op.seq;
     if (seq > (versions.at(-1)?.seq ?? 0)) versions.push({ seq, name });
@@ -820,6 +817,6 @@ export function generateDataset(seed = 1): Dataset {
   return {
     authors: AUTHORS.map((a) => ({ ...a })),
     ops: editor.ops,
-    namedVersions: nameVersions(editor.ops),
+    namedVersions: nameVersions(editor.ops, START, VERSION_DAYS),
   };
 }

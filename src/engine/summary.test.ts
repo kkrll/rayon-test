@@ -21,11 +21,11 @@ test('describeEdit names what changed', () => {
   expect(describeEdit(update(room, { ...room, style: { ...room.style, name: 'Lounge' } }))).toBe('renamed');
 });
 
-test('summarize ranks distinct objects and rooms by how often they were edited', () => {
-  const edit = (name: string, room: string | null): SessionEdit =>
-    ({ verb: 'moved', type: 'furniture', objectId: name, name, room });
+test('summarize ranks distinct objects and areas by how often they were edited', () => {
+  const edit = (name: string, area: string | null): SessionEdit =>
+    ({ verb: 'moved', type: 'furniture', objectId: name, name, area });
   const summary = summarize([edit('Sofa', 'Living'), edit('Table', 'Kitchen'), edit('Table', 'Kitchen'), edit('Rug', null)]);
-  expect(summary).toEqual({ edits: 4, objects: ['Table', 'Sofa', 'Rug'], rooms: ['Kitchen', 'Living'] });
+  expect(summary).toEqual({ edits: 4, objects: ['Table', 'Sofa', 'Rug'], areas: ['Kitchen', 'Living'] });
 });
 
 test('formatList shows the first items and counts the rest', () => {

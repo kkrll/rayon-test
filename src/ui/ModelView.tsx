@@ -1,9 +1,10 @@
 import { onCleanup, onMount } from 'solid-js';
 import type { History } from '../engine/history';
-import { type Session, sessionAt } from '../engine/sessions';
+import type { Session } from '../engine/sessions';
 import { type Bounds, type Camera, fitCamera, zoomAt } from '../render/camera';
 import { onFrame } from '../render/frameLoop';
-import { type Highlight, NO_HIGHLIGHT, type RenderMode, drawModel, toHighlight } from '../render/modelRenderer';
+import { sessionHighlighter } from '../render/highlight';
+import { PLAN_PADDING_PX, type RenderMode, drawModel } from '../render/modelRenderer';
 import { stats } from '../render/stats';
 import { type Theme, readTheme } from '../render/theme';
 import { cursor } from './cursor';
@@ -30,21 +31,8 @@ export function ModelView(props: Props) {
   const outlineLayer = document.createElement('canvas');
   const fullLayer = document.createElement('canvas');
 
-  let highlightKey = '';
-  let highlight: Highlight = NO_HIGHLIGHT;
-
-  /** Diff since the start of the session containing the cursor (cached). */
-  const highlightAt = (seq: number): Highlight => {
-    const index = sessionAt(props.sessions, props.history.ops, seq);
-    if (index < 0) return NO_HIGHLIGHT;
-    const from = props.sessions[index].startSeq - 1;
-    const key = `${from}:${seq}`;
-    if (key !== highlightKey) {
-      highlight = toHighlight(props.history.diff(from, seq));
-      highlightKey = key;
-    }
-    return highlight;
-  };
+  /** Diff since the start of the session containing the cursor. */
+  const highlightAt = sessionHighlighter(props.history, props.sessions);
 
   const render = (target: HTMLCanvasElement, seq: number, mode: RenderMode) => {
     const start = performance.now();
@@ -106,7 +94,7 @@ export function ModelView(props: Props) {
       c.width = Math.round(canvas.clientWidth * dpr);
       c.height = Math.round(canvas.clientHeight * dpr);
     }
-    camera ??= fitCamera(props.bounds, canvas.clientWidth, canvas.clientHeight);
+    camera ??= fitCamera(props.bounds, canvas.clientWidth, canvas.clientHeight, PLAN_PADDING_PX);
     dirty = true;
   };
 

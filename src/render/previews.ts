@@ -1,9 +1,10 @@
 import type { History } from '../engine/history';
 import type { Session } from '../engine/sessions';
 import { type SessionEdit, type SessionSummary, sessionEdits, summarize } from '../engine/summary';
-import type { Room } from '../engine/types';
+import type { Room, State } from '../engine/types';
 import { type Bounds, fitCamera } from './camera';
-import { NO_HIGHLIGHT, boundsOf, drawModel, expandBounds } from './modelRenderer';
+import { NO_HIGHLIGHT } from './highlight';
+import { boundsOf, drawModel, expandBounds } from './modelRenderer';
 import type { Theme } from './theme';
 
 export const THUMB_W = 72;
@@ -20,6 +21,12 @@ export interface Preview {
 }
 
 /**
+ * Draws the state at a session's end into a THUMB_W x THUMB_H canvas (device
+ * pixels; `ctx` is unscaled). Each kind of project brings its own.
+ */
+export type DrawThumbnail = (ctx: CanvasRenderingContext2D, state: State, session: Session, dpr: number) => void;
+
+/**
  * Display snapshots: the model at each session's end, rendered small and
  * summarised. Built lazily for sessions that come into view, within a time
  * budget per frame, and cached for good.
@@ -31,7 +38,7 @@ export class SessionPreviews {
   constructor(
     private readonly history: History,
     private readonly sessions: Session[],
-    private readonly bounds: Bounds,
+    private readonly draw: DrawThumbnail,
     private readonly theme: Theme,
   ) {}
 
@@ -67,25 +74,31 @@ export class SessionPreviews {
     const ctx = image.getContext('2d')!;
     ctx.fillStyle = this.theme.background;
     ctx.fillRect(0, 0, image.width, image.height);
-    drawModel(ctx, state, fitCamera(this.frame(session), THUMB_W, THUMB_H, 0), dpr, this.theme, 'thumbnail', NO_HIGHLIGHT);
+    this.draw(ctx, state, session, dpr);
 
     return { image, edits, summary: summarize(edits) };
   }
+}
 
+/** Floor plan thumbnails: 2D, framed on the area the session worked on. */
+export function planThumbnails(history: History, bounds: Bounds, theme: Theme): DrawThumbnail {
   /**
    * The area this session worked on, so a thumbnail shows where the change
    * happened rather than the whole floor at an unreadable scale.
    */
-  private frame(session: Session): Bounds {
+  const frame = (session: Session): Bounds => {
     const touched = session.seqs.map((seq) => {
-      const op = this.history.ops[seq - 1];
+      const op = history.ops[seq - 1];
       return (op.after ?? op.before)!;
     });
     const framed = expandBounds(boundsOf(touched), FRAME_PAD_CM, FRAME_MIN_W_CM, FRAME_MIN_H_CM);
     // A session that touched the whole plan gets the whole plan.
     const tooBig =
-      framed.maxX - framed.minX >= this.bounds.maxX - this.bounds.minX ||
-      framed.maxY - framed.minY >= this.bounds.maxY - this.bounds.minY;
-    return tooBig ? this.bounds : framed;
-  }
+      framed.maxX - framed.minX >= bounds.maxX - bounds.minX ||
+      framed.maxY - framed.minY >= bounds.maxY - bounds.minY;
+    return tooBig ? bounds : framed;
+  };
+
+  return (ctx, state, session, dpr) =>
+    drawModel(ctx, state, fitCamera(frame(session), THUMB_W, THUMB_H, 0), dpr, theme, 'thumbnail', NO_HIGHLIGHT);
 }
