@@ -28,22 +28,25 @@ import {
  * is the same, with `height` the strip's length (canvas width) and `width`
  * its depth (canvas height); an axis position lands at x = height - y.
  *
- * Rows, top to bottom: day labels and the head's tab, ticks, session lanes,
- * cards (thumbnail over avatar, edit count and time).
+ * Rows, top to bottom: day labels and the head's tab, ticks (session lanes
+ * centred across them), cards (thumbnail over avatar, edit count and time).
  */
+const TICKS_TOP = 28;
+const TICKS_H = 56;
+const LANE_STEP = 4;
+
 export const ROWS = {
   labelTop: 0,
   labelH: 20,
-  ticksTop: 26,
-  ticksH: 16,
-  lanesTop: 48,
-  laneStep: 4,
-  cardsTop: 64,
+  ticksTop: TICKS_TOP,
+  ticksH: TICKS_H,
+  laneStep: LANE_STEP,
+  cardsTop: TICKS_TOP + TICKS_H + 12,
 };
 
 const CARD_W = THUMB_W + 24;
 const CARD_GAP = 8;
-const CARD_TEXT_H = 30;
+const CARD_TEXT_H = 36;
 const PAD = 12;
 const FEATHER = 24;
 
@@ -203,13 +206,16 @@ function drawSessions(
   theme: Theme,
 ): PlacedCard[] {
   const { sessions, lanes, layout, authors } = scene;
+  // Lanes (2px lines) centred in the ticks row.
+  const laneCount = lanes.reduce((m, l) => Math.max(m, l + 1), 1);
+  const lanesTop = ROWS.ticksTop + (ROWS.ticksH - ((laneCount - 1) * ROWS.laneStep + 2)) / 2;
   const candidates: CardCandidate[] = [];
   for (const s of sessions) {
     if (s.endSeq < first || s.startSeq > last) continue;
     const left = x(layout.tickAt(s.startSeq, view.ppo));
     const right = x(layout.boundaryAt(s.endSeq, view.ppo));
     ctx.fillStyle = authors.get(s.authorId)?.color ?? theme.foreground05;
-    ctx.fillRect(left, ROWS.lanesTop + lanes[s.index] * ROWS.laneStep, Math.max(2, right - left), 2);
+    ctx.fillRect(left, lanesTop + lanes[s.index] * ROWS.laneStep, Math.max(2, right - left), 2);
     // A card ends where its session ends (its newest edit), like the snapshot it shows.
     const cardLeft = right - CARD_W;
     if (right > 0 && cardLeft < view.height) candidates.push({ index: s.index, top: cardLeft, priority: s.seqs.length });
@@ -235,7 +241,8 @@ function drawCard(ctx: CanvasRenderingContext2D, scene: TimelineScene, index: nu
   ctx.lineWidth = 1;
   ctx.strokeRect(lx + 0.5, top + 0.5, THUMB_W - 1, THUMB_H - 1);
 
-  const ty = top + THUMB_H + 10;
+  // Each row (thumbnail, author and count, time) keeps 2px below it.
+  const ty = top + THUMB_H + 2 + 10;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
   if (author) drawAvatar(ctx, lx + 7, ty, 7, author, theme);
@@ -244,7 +251,7 @@ function drawCard(ctx: CanvasRenderingContext2D, scene: TimelineScene, index: nu
   ctx.fillText(`${session.seqs.length} edits`, lx + 18, ty + 1);
   ctx.font = `400 11px ${theme.fontMono}`;
   const area = preview ? formatList(preview.summary.areas, 1) : '';
-  ctx.fillText(fit(ctx, `${formatTime(session.endTs)} ${area}`, CARD_W - 4), lx, ty + 16);
+  ctx.fillText(fit(ctx, `${formatTime(session.endTs)} ${area}`, CARD_W - 4), lx, ty + 18);
 }
 
 /** The card under a point (strip coordinates: x along, y across), or -1. */

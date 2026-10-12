@@ -1,4 +1,5 @@
 import { For, Show, createMemo, createSignal, onCleanup } from 'solid-js';
+import { track } from '../analytics';
 import { FACETS, type Facet, type Filter, isEmpty, matcher, toggle } from '../engine/filter';
 import type { History } from '../engine/history';
 import { type Lens, createLens } from '../engine/lens';
@@ -91,7 +92,9 @@ export function HistoryPanel(props: Props) {
   onCleanup(() => clearTimeout(closeTimer));
 
   /** Card items and chips both toggle a value in or out of the filter. */
-  const toggleValue = (facet: Facet, value: string) => {
+  const toggleValue = (facet: Facet, value: string, source: 'card' | 'chip') => {
+    const active = !(filter()[facet]?.includes(value) ?? false);
+    track('filter_toggled', { facet, value, active, source });
     setFilter((f) => toggle(f, facet, value));
     clearTimeout(closeTimer);
     setHover(null);
@@ -107,20 +110,49 @@ export function HistoryPanel(props: Props) {
       })));
   };
 
-  // Day and time are on the playhead; the header keeps the position.
+  // Day and time are on the playhead; the footer keeps the position.
   const readout = () => `${seq().toLocaleString('en')}/${total}`;
 
   return (
     <aside class="history dark">
+      {/* Rayon's panel bar. Only the history toggle is live (it is the open panel). */}
+      <div class="panel-bar">
+        <div class="avatar-stack">
+          <For each={props.authors}>
+            {(a) => (
+              <span class="avatar" style={{ background: a.color }} title={a.name}>
+                {a.initials}
+              </span>
+            )}
+          </For>
+        </div>
+        <span class="panel-bar-spacer" />
+        <button class="icon-button" aria-pressed="true" aria-label="Version history">
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path d="M17.5 10A7.5 7.5 0 1 1 10 2.5A7.5 7.5 0 0 1 17.5 10Z" opacity="0.7" />
+            <path d="M10 5.5V10l2.19 2.19" />
+          </svg>
+        </button>
+        <span class="panel-bar-divider" />
+        <button class="icon-button icon-button-filled" aria-label="Present">
+          <svg viewBox="0 0 20 20" aria-hidden="true">
+            <path
+              class="icon-fill"
+              d="M7.88 16.27C6.89 16.99 5.5 16.28 5.5 15.05V4.95C5.5 3.72 6.89 3.01 7.88 3.73l6.95 5.06c.82.6.82 1.83 0 2.42Z"
+            />
+          </svg>
+        </button>
+        <button class="button button-primary">Share</button>
+      </div>
       <header class="history-header">
-        <h2 class="history-title">History</h2>
-        <span class="history-readout">{readout()}</span>
+        <h2 class="history-title">Version history</h2>
       </header>
+      <div class="panel-rule" />
       <Show when={chips().length > 0}>
         <div class="history-filters">
           <For each={chips()}>
             {(chip) => (
-              <button class="chip" onClick={() => toggleValue(chip.facet, chip.value)} aria-label={`Remove filter ${chip.label}`}>
+              <button class="chip" onClick={() => toggleValue(chip.facet, chip.value, 'chip')} aria-label={`Remove filter ${chip.label}`}>
                 {chip.label}
                 <span class="chip-remove">×</span>
               </button>
@@ -149,6 +181,9 @@ export function HistoryPanel(props: Props) {
           )
         }
       </Show>
+      <footer class="panel-footer">
+        <span class="history-readout">{readout()} edits</span>
+      </footer>
       <Show when={hover()}>
         {(h) => (
           <SessionCard
@@ -158,7 +193,7 @@ export function HistoryPanel(props: Props) {
             author={authorById.get(props.sessions[h().index].authorId)}
             areaLabel={props.areaLabel}
             filter={filter()}
-            onToggle={toggleValue}
+            onToggle={(facet, value) => toggleValue(facet, value, 'card')}
             onEnter={() => clearTimeout(closeTimer)}
             onLeave={() => onHover(null)}
           />

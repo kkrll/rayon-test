@@ -278,8 +278,11 @@ function drawBand(
 ) {
   ctx.fillStyle = theme.background;
   ctx.fillRect(0, top, width, size);
-  ctx.fillStyle = theme.foreground03;
-  ctx.fillRect(0, Math.round(top) + 0.5, width, 1);
+  // A band pinned at the top edge sits under the panel's own rule: no second line.
+  if (top > 0.5) {
+    ctx.fillStyle = theme.foreground03;
+    ctx.fillRect(0, Math.round(top) + 0.5, width, 1);
+  }
   if (size < 20) return; // too thin for text
 
   // Mid-band: where the playhead rests between days, so its tabs cover these.

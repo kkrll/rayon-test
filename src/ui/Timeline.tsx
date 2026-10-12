@@ -1,4 +1,5 @@
 import { onCleanup, onMount } from 'solid-js';
+import { track } from '../analytics';
 import type { Lens } from '../engine/lens';
 import type { Author } from '../engine/types';
 import { FRAME_ORDER, onFrame } from '../render/frameLoop';
@@ -230,6 +231,7 @@ export function Timeline(props: Props) {
       if (!moved) {
         const [along, across] = local(u);
         const card = cardAt(along, across);
+        if (card >= 0) track('session_card_clicked', { edits: lens.sessions[card].seqs.length, orientation: props.orientation });
         animateTo(card >= 0 ? lens.sessions[card].endSeq : seqAtY(along), JUMP_MS);
       }
       canvas.removeEventListener('pointermove', move);

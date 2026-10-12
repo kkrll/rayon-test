@@ -1,4 +1,5 @@
 import { For, Show, createEffect, createResource, createSignal, on, onCleanup, onMount } from 'solid-js';
+import { track } from '../analytics';
 import { copyUntil, resetTo } from '../engine/actions';
 import { cursor } from './cursor';
 import { DebugOverlay } from './DebugOverlay';
@@ -9,6 +10,9 @@ import { ModelView } from './ModelView';
 import { PROJECTS, type Project, type ProjectEntry, deriveProject, loadProject } from './projects';
 
 const [debugVisible, setDebugVisible] = createSignal(false);
+
+/** How long the playhead must rest before a stop counts as viewed. */
+const HISTORY_VIEWED_MS = 1000;
 
 /** The project in the URL hash (#n97), so a reload stays where you were. */
 function projectFromHash(): string {
@@ -25,6 +29,7 @@ export function App() {
   const [viewSeq, setViewSeq] = createSignal<number | null>(null);
 
   const select = (id: string) => {
+    track('project_opened', { project: id, kind: entries().find((e) => e.id === id)?.kind });
     window.history.replaceState(null, '', `#${id}`);
     setViewSeq(null); // until the new timeline reports where it is
     setProjectId(id);
@@ -37,6 +42,7 @@ export function App() {
     while (taken.has(`${p.id}-copy-${n}`)) n++;
     const id = `${p.id}-copy-${n}`;
     const name = n === 1 ? `${p.name} copy` : `${p.name} copy ${n}`;
+    track('copy_created', { project: p.id, seq, total: p.history.length });
     deriveProject(p, id, name, copyUntil(p.dataset, seq));
     setEntries([...entries(), { id, name, kind: p.kind === 'plan' ? '2D' : '3D' }]);
     select(id);
@@ -44,9 +50,25 @@ export function App() {
 
   /** Appends edits that restore the viewed state; the project reopens at its new latest edit. */
   const resetHere = (p: Project, seq: number) => {
+    track('reset_done', { project: p.id, seq, total: p.history.length });
     setViewSeq(null);
     mutate(deriveProject(p, p.id, p.name, resetTo(p.dataset, p.history, seq, Date.now())));
   };
+
+  // Where people stop in history: reported once the playhead rests a second.
+  let viewTimer: ReturnType<typeof setTimeout> | undefined;
+  createEffect(on(viewSeq, (seq) => {
+    clearTimeout(viewTimer);
+    const p = project();
+    if (seq === null || !p) return;
+    viewTimer = setTimeout(() => track('history_viewed', {
+      project: p.id,
+      seq,
+      total: p.history.length,
+      edits_behind: p.history.length - seq,
+    }), HISTORY_VIEWED_MS);
+  }, { defer: true }));
+  onCleanup(() => clearTimeout(viewTimer));
 
   return (
     <div class="app">
@@ -54,7 +76,7 @@ export function App() {
         <Show when={project()} keyed fallback={<div class="stage-message">Loading…</div>}>
           {(p) => <Workspace project={p} />}
         </Show>
-        <nav class="projects" aria-label="Projects">
+        <nav class="projects dark" aria-label="Projects">
           <For each={entries()}>
             {(p) => (
               <button
@@ -106,6 +128,9 @@ export function App() {
   );
 }
 
+/** How long the playhead must rest before the pane's label catches up. */
+const LABEL_DEBOUNCE_MS = 150;
+
 /**
  * Floating over the canvas while an earlier state is shown: branch a copy
  * off it, or bring the project back to it.
@@ -116,16 +141,34 @@ function ViewActions(props: { project: Project; seq: number; onCopy: () => void;
   createEffect(on(() => props.seq, () => setConfirming(false), { defer: true }));
 
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Escape') setConfirming(false);
+    if (e.key === 'Escape' && confirming()) cancel('escape');
   };
   onMount(() => window.addEventListener('keydown', onKeyDown));
   onCleanup(() => window.removeEventListener('keydown', onKeyDown));
 
+  // The label follows the playhead once it rests, not every edit scrubbed past.
+  const [shownSeq, setShownSeq] = createSignal(props.seq);
+  let labelTimer: ReturnType<typeof setTimeout> | undefined;
+  createEffect(on(() => props.seq, (seq) => {
+    clearTimeout(labelTimer);
+    labelTimer = setTimeout(() => setShownSeq(seq), LABEL_DEBOUNCE_MS);
+  }, { defer: true }));
+  onCleanup(() => clearTimeout(labelTimer));
+
+  const ask = () => {
+    track('reset_asked', { project: props.project.id, seq: props.seq });
+    setConfirming(true);
+  };
+  const cancel = (via: 'button' | 'escape') => {
+    track('reset_cancelled', { project: props.project.id, seq: props.seq, via });
+    setConfirming(false);
+  };
+
   const when = () => {
-    const op = props.project.history.ops[props.seq - 1];
+    const op = props.project.history.ops[shownSeq() - 1];
     return op ? `${formatDay(op.ts)} · ${formatTime(op.ts)}` : 'Before the first edit';
   };
-  const since = () => (props.project.history.length - props.seq).toLocaleString('en');
+  const since = () => (props.project.history.length - shownSeq()).toLocaleString('en');
 
   return (
     <div class="view-actions dark" role="region" aria-label="Earlier state">
@@ -141,7 +184,7 @@ function ViewActions(props: { project: Project; seq: number; onCopy: () => void;
               {when()} · {since()} edits since
             </span>
             <span class="view-actions-divider" />
-            <button class="button button-secondary" onClick={() => setConfirming(true)}>
+            <button class="button button-secondary" onClick={ask}>
               Reset to this state
             </button>
             <button class="button button-primary" onClick={props.onCopy}>
@@ -152,7 +195,7 @@ function ViewActions(props: { project: Project; seq: number; onCopy: () => void;
       >
         <span class="view-actions-label view-actions-label-strong">Are you sure? The changes would be lost</span>
         <span class="view-actions-divider" />
-        <button class="button button-secondary" onClick={() => setConfirming(false)}>
+        <button class="button button-secondary" onClick={() => cancel('button')}>
           Cancel
         </button>
         <button class="button button-secondary" onClick={props.onCopy}>
@@ -173,7 +216,10 @@ function Workspace(props: { project: Project }) {
 
   // History keys (arrows) belong to the timeline; D toggles the debug overlay.
   const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'd' || e.key === 'D') setDebugVisible((v) => !v);
+    if (e.key === 'd' || e.key === 'D') {
+      setDebugVisible((v) => !v);
+      track('debug_toggled', { visible: debugVisible() });
+    }
   };
   onMount(() => window.addEventListener('keydown', onKeyDown));
   onCleanup(() => window.removeEventListener('keydown', onKeyDown));
