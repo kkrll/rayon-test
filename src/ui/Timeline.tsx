@@ -181,14 +181,18 @@ export function Timeline(props: Props) {
     dirty = false;
   };
 
+  /** Zoom around the head, so the model shown does not change. */
+  const zoomTo = (ppo: number) => {
+    const seq = seqAtHead();
+    view.ppo = Math.min(MAX_PPO, Math.max(MIN_PPO, ppo));
+    props.zoom.ppo = view.ppo;
+    setScroll(scrollFor(seq));
+  };
+
   const onWheel = (e: WheelEvent) => {
     e.preventDefault();
     if (e.ctrlKey || e.metaKey) {
-      // Zoom around the head, so the model shown does not change.
-      const seq = seqAtHead();
-      view.ppo = Math.min(MAX_PPO, Math.max(MIN_PPO, view.ppo * Math.exp(-e.deltaY * 0.01)));
-      props.zoom.ppo = view.ppo;
-      setScroll(scrollFor(seq));
+      zoomTo(view.ppo * Math.exp(-e.deltaY * 0.01));
       return;
     }
     markInput();
@@ -210,16 +214,39 @@ export function Timeline(props: Props) {
     );
   };
 
+  /** Pointers down on the strip, for pinching. */
+  const pointers = new Map<number, { x: number; y: number }>();
+  /** Finger distance and zoom when the second finger landed. */
+  let pinch: { distance: number; ppo: number } | null = null;
+  const spread = () => {
+    const [a, b] = [...pointers.values()];
+    return Math.max(1, Math.hypot(a.x - b.x, a.y - b.y));
+  };
+
   // Drag anywhere moves history under the head. A click on a card jumps to
   // that session's snapshot (its end); elsewhere it brings the point to the head.
+  // Two fingers pinch to zoom; the first finger's listeners serve both.
   const onPointerDown = (e: PointerEvent) => {
     canvas.setPointerCapture(e.pointerId);
+    pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pointers.size === 2) {
+      pinch = { distance: spread(), ppo: view.ppo };
+      markInput();
+    }
+    if (pointers.size > 1) return;
+
     const [startAlong] = local(e);
     let moved = false;
     dragging = true;
     props.onHover?.(null);
 
     const move = (m: PointerEvent) => {
+      if (pointers.has(m.pointerId)) pointers.set(m.pointerId, { x: m.clientX, y: m.clientY });
+      if (pinch) {
+        if (pointers.size === 2) zoomTo(pinch.ppo * (spread() / pinch.distance));
+        return;
+      }
+      if (m.pointerId !== e.pointerId) return;
       if (!moved && Math.abs(local(m)[0] - startAlong) <= CLICK_SLOP) return;
       moved = true;
       markInput();
@@ -227,18 +254,26 @@ export function Timeline(props: Props) {
       setScroll(view.scroll + (horizontal ? m.movementX : -m.movementY));
     };
     const up = (u: PointerEvent) => {
-      dragging = false;
-      if (!moved) {
+      pointers.delete(u.pointerId);
+      if (pinch) {
+        // A pinch is never a click; lifting a finger ends it.
+        moved = true;
+        if (pointers.size < 2) pinch = null;
+      } else if (u.pointerId === e.pointerId && !moved && u.type === 'pointerup') {
         const [along, across] = local(u);
         const card = cardAt(along, across);
         if (card >= 0) track('session_card_clicked', { edits: lens.sessions[card].seqs.length, orientation: props.orientation });
         animateTo(card >= 0 ? lens.sessions[card].endSeq : seqAtY(along), JUMP_MS);
       }
+      if (pointers.size > 0) return;
+      dragging = false;
       canvas.removeEventListener('pointermove', move);
       canvas.removeEventListener('pointerup', up);
+      canvas.removeEventListener('pointercancel', up);
     };
     canvas.addEventListener('pointermove', move);
     canvas.addEventListener('pointerup', up);
+    canvas.addEventListener('pointercancel', up);
   };
 
   /** Arrows step one edit, Shift+arrows one snapshot, among the edits shown. */
