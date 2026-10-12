@@ -21,10 +21,18 @@
   --brand-dark: #10100e;
   --brand-text: var(--brand-dark);
 
+  /* Calls to action, Rayon blue. */
+  --action: #3888ff;
+  --action-text: #ffffff;
+
+  /* Playhead tabs: the accent blue, white text, on either ground. */
+  --playhead-tab: #3888ff;
+  --playhead-tab-text: #ffffff;
+
   /* Edit kinds and diff states: data encoding, not accents. */
-  --diff-added: #5f8f52;
-  --diff-deleted: #c0533c;
-  --diff-modified: #c99232;
+  --diff-added: #00774D;
+  --diff-deleted: #FF393C;
+  --diff-modified: #4f7fb8;
 
   --font-sans-stack: 'Geist', ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono-stack: 'Geist Mono', ui-monospace, 'SF Mono', Menlo, monospace;
@@ -51,12 +59,15 @@
   --foreground-05: #4b4a49;
   --foreground-03: #3a3938;
 
-  --brand-light: #ceccab;
+  --brand-light: #3888FF;
   --brand-text: var(--brand-light);
 
-  --diff-added: #7fae70;
-  --diff-deleted: #d9694f;
-  --diff-modified: #ddb04f;
+  --playhead-tab: var(--brand-light);
+  --playhead-tab-text: #ffffff;
+
+  --diff-added: #00B273;
+  --diff-deleted: #FF393C;
+  --diff-modified: #3888FF;
 }
 
 html,
@@ -162,6 +173,108 @@ body {
   padding: 0 8px;
 }
 
+/*
+ * Floats over the canvas while an earlier state is shown, like Rayon's
+ * canvas toasts: dark, one line, icon and quiet text, then the actions.
+ */
+.view-actions {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: calc(100% - 32px);
+  padding: 4px 4px 4px 12px;
+  border-radius: 12px;
+  background: var(--background-07);
+  color: var(--foreground);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.16);
+  animation: view-actions-in var(--duration-enter) var(--ease-entrance);
+}
+
+@keyframes view-actions-in {
+  from {
+    opacity: 0;
+    transform: translate(-50%, 8px);
+  }
+}
+
+.view-actions-icon {
+  flex: none;
+  width: 18px;
+  height: 18px;
+  fill: none;
+  stroke: var(--foreground-07);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* Fixed width and even digits, so the pane doesn't jump while scrubbing. */
+.view-actions-label {
+  width: 17.5rem;
+  overflow: hidden;
+  color: var(--foreground-07);
+  font-size: 0.875rem;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* The question reads as the pane's main text, not as a quiet caption. */
+.view-actions-label-strong {
+  color: var(--foreground);
+}
+
+.view-actions-divider {
+  flex: none;
+  width: 1px;
+  height: 20px;
+  background: var(--foreground-03);
+}
+
+.button {
+  flex: none;
+  height: 32px;
+  padding: 0 12px 2px;
+  border: 0;
+  border-radius: 8px;
+  font: 500 0.875rem var(--font-sans-stack);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--duration-micro), filter var(--duration-micro);
+}
+
+.button-primary {
+  background: var(--action);
+  color: var(--action-text);
+}
+
+.button-primary:hover {
+  filter: brightness(1.08);
+}
+
+/* Destructive confirmation: the diff red as text on a 10% tint of itself. */
+.button-negative {
+  background: color-mix(in srgb, var(--diff-deleted) 10%, transparent);
+  color: var(--diff-deleted);
+}
+
+.button-negative:hover {
+  background: color-mix(in srgb, var(--diff-deleted) 16%, transparent);
+}
+
+.button-secondary {
+  background: var(--background-05);
+  color: var(--foreground);
+}
+
+.button-secondary:hover {
+  filter: brightness(1.15);
+}
+
 .stage-message {
   position: absolute;
   inset: 0;
@@ -173,8 +286,8 @@ body {
 
 /* History panel: near-black ground, structure from hairlines only. */
 .history {
-  display: grid;
-  grid-template-rows: auto 1fr;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   background: var(--background);
   color: var(--foreground);
@@ -204,15 +317,57 @@ body {
 
 .timeline {
   display: block;
+  flex: 1;
   width: 100%;
-  height: 100%;
   min-height: 0;
   touch-action: none;
-  cursor: grab;
+  /* History moves by scrolling; only cards are targets (pointer, set on hover). */
 }
 
-.timeline:active {
-  cursor: grabbing;
+/* Active filters: one chip per facet, removed with a click. */
+.history-filters {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 0 16px 12px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--foreground-03);
+  border-radius: 100rem;
+  background: none;
+  color: var(--foreground);
+  font: 400 0.75rem var(--font-sans-stack);
+  cursor: pointer;
+  transition: background var(--duration-micro);
+}
+
+.chip:hover {
+  background: var(--background-07);
+}
+
+.chip-remove {
+  font-family: var(--font-mono-stack);
+}
+
+.history-filters-count {
+  margin-left: auto;
+  font-family: var(--font-mono-stack);
+  font-size: 0.75rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.history-empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  font-family: var(--font-mono-stack);
+  font-size: 0.75rem;
 }
 
 .debug {
@@ -249,7 +404,26 @@ body {
   border-radius: 8px;
   background: var(--background);
   color: var(--foreground);
-  pointer-events: none;
+}
+
+/* Card items that filter the timeline. */
+.facet {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  text-decoration: underline;
+  text-decoration-color: transparent;
+  text-underline-offset: 3px;
+  cursor: pointer;
+  transition: text-decoration-color var(--duration-micro);
+}
+
+.facet:hover,
+.facet[aria-pressed='true'] {
+  text-decoration-color: currentColor;
 }
 
 .session-card-author {
@@ -294,4 +468,51 @@ body {
   color: var(--background);
   font-size: 0.625rem;
   font-weight: 600;
+}
+
+/*
+ * Narrow screens: two rows, the model on top and the history as a horizontal
+ * strip below (the timeline picks its orientation from the same query).
+ * Touch has no hover, so the floating session card is not used.
+ */
+@media (max-width: 720px) {
+  .app {
+    grid-template-columns: 1fr;
+    grid-template-rows: 1fr auto;
+  }
+
+  .history {
+    height: 220px;
+    border-left: 0;
+    border-top: 1px solid var(--foreground-03);
+  }
+
+  .history-header {
+    padding: 8px 12px;
+  }
+
+  .history-filters {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding: 0 12px 8px;
+  }
+
+  .session-card {
+    display: none;
+  }
+
+  .projects {
+    top: 8px;
+    left: 8px;
+  }
+
+  .project-kind {
+    display: none;
+  }
+
+  /* Only the actions fit; the playhead's tab already says when. */
+  .view-actions-label,
+  .view-actions-divider {
+    display: none;
+  }
 }

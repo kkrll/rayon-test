@@ -2,7 +2,7 @@ import type { Session } from '../engine/sessions';
 import { formatList } from '../engine/summary';
 import type { Author, Op, OpKind } from '../engine/types';
 import { dayIndex, formatDay, formatGap, formatMonth, formatTime } from '../ui/format';
-import { type SessionPreviews, THUMB_H, THUMB_W } from './previews';
+import { type PreviewSource, THUMB_H, THUMB_W } from './previews';
 import { type CardCandidate, type Slot, placeCards } from './sessionLayout';
 import type { Theme } from './theme';
 import { BREAK_PX, type TimelineLayout, breakPx } from './timelineLayout';
@@ -24,11 +24,11 @@ export function tierFor(ppo: number): Tier {
 /** Horizontal columns of the strip, in CSS pixels. */
 export const COLUMNS = {
   ticksLeft: 16,
-  ticksWidth: 20,
+  ticksWidth: 24,
   labelLeft: 16,
   lanesLeft: 44,
-  laneStep: 5,
-  cardsLeft: 84,
+  laneStep: 4,
+  cardsLeft: 64,
   right: 16,
 };
 
@@ -54,7 +54,7 @@ export interface TimelineScene {
   sessions: Session[];
   lanes: number[];
   authors: Map<string, Author>;
-  previews: SessionPreviews;
+  previews: PreviewSource;
 }
 
 export interface PlacedCard {
@@ -106,16 +106,55 @@ export function drawTimeline(
   ctx.fillStyle = theme.background;
   ctx.fillRect(0, 0, width, headY);
   ctx.globalAlpha = 1;
+  drawFeather(ctx, 0, FEATHER_TOP, width, theme, 'down');
+  drawFeather(ctx, height - FEATHER_BOTTOM, FEATHER_BOTTOM, width, theme, 'up');
 
   if (tier === 'close') drawStickyDay(ctx, ops, layout, view, last, y, theme);
   else drawPinnedHeader(ctx, ops, layout, view, tier, theme);
-  drawHead(ctx, headY, width, theme);
+  // The edit under the head (none at the very start).
+  const headOp = ops[layout.headSeqAt(yToAxis(layout, view, headY), ppo) - 1];
+  drawHead(ctx, headY, width, headOp?.ts ?? null, theme);
   return cards;
+}
+
+/** Soft edges where history scrolls out of view (the top one ends under the day header). */
+const FEATHER_TOP = 64;
+const FEATHER_BOTTOM = 48;
+
+/** A fade to the ground colour across `size` px, solid at the outer edge. */
+export function drawFeather(
+  ctx: CanvasRenderingContext2D,
+  at: number,
+  size: number,
+  across: number,
+  theme: Theme,
+  towards: 'down' | 'up' | 'right' | 'left',
+) {
+  const horizontal = towards === 'right' || towards === 'left';
+  const solidFirst = towards === 'down' || towards === 'right';
+  const gradient = horizontal
+    ? ctx.createLinearGradient(at, 0, at + size, 0)
+    : ctx.createLinearGradient(0, at, 0, at + size);
+  gradient.addColorStop(solidFirst ? 0 : 1, theme.background);
+  gradient.addColorStop(solidFirst ? 1 : 0, transparent(theme.background));
+  ctx.fillStyle = gradient;
+  if (horizontal) ctx.fillRect(at, 0, size, across);
+  else ctx.fillRect(0, at, across, size);
+}
+
+/** The same colour at zero alpha, so the fade doesn't pass through grey. */
+function transparent(hex: string) {
+  return hex.length === 7 ? `${hex}00` : 'transparent';
 }
 
 // ---------------------------------------------------------------- ticks
 
-function kindColors(theme: Theme): Record<OpKind, string> {
+/** A tick fills about half its slot: thin marks with clear gaps between edits. */
+export function tickThickness(ppo: number) {
+  return Math.max(1, Math.floor(ppo / 4));
+}
+
+export function kindColors(theme: Theme): Record<OpKind, string> {
   return { update: theme.foreground05, create: theme.added, delete: theme.deleted };
 }
 
@@ -130,7 +169,7 @@ function drawTicks(
   theme: Theme,
 ) {
   const colors = kindColors(theme);
-  const tickH = Math.max(1, ppo - 1);
+  const tickH = tickThickness(ppo);
   // One pass per kind keeps fillStyle changes to three per frame.
   for (const kind of ['update', 'create', 'delete'] as const) {
     ctx.fillStyle = colors[kind];
@@ -143,12 +182,12 @@ function drawTicks(
   }
 }
 
-function weekIndex(ts: number) {
+export function weekIndex(ts: number) {
   // Day 0 (1 Jan 1970) was a Thursday; +3 makes weeks start on Monday.
   return Math.floor((dayIndex(ts) + 3) / 7);
 }
 
-function monthIndex(ts: number) {
+export function monthIndex(ts: number) {
   const d = new Date(ts);
   return d.getUTCFullYear() * 12 + d.getUTCMonth();
 }
@@ -243,7 +282,8 @@ function drawBand(
   ctx.fillRect(0, Math.round(top) + 0.5, width, 1);
   if (size < 20) return; // too thin for text
 
-  const mid = top + size / 2 + 1;
+  // Mid-band: where the playhead rests between days, so its tabs cover these.
+  const mid = top + size / 2 + 0.5;
   ctx.textBaseline = 'middle';
   if (day) {
     ctx.font = `500 11px ${theme.fontMono}`;
@@ -406,7 +446,7 @@ function drawCard(ctx: CanvasRenderingContext2D, scene: TimelineScene, card: Car
   ctx.fillText(fit(ctx, summary ? formatList(summary.areas, 2) : '', right - tx), tx, top + 43);
 }
 
-function drawAvatar(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, author: Author, theme: Theme) {
+export function drawAvatar(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: number, author: Author, theme: Theme) {
   ctx.fillStyle = author.color;
   ctx.beginPath();
   ctx.arc(cx, cy, r, 0, Math.PI * 2);
@@ -419,7 +459,7 @@ function drawAvatar(ctx: CanvasRenderingContext2D, cx: number, cy: number, r: nu
 }
 
 /** Truncates text with an ellipsis to fit `max` px. */
-function fit(ctx: CanvasRenderingContext2D, text: string, max: number) {
+export function fit(ctx: CanvasRenderingContext2D, text: string, max: number) {
   if (ctx.measureText(text).width <= max) return text;
   let end = text.length;
   while (end > 0 && ctx.measureText(`${text.slice(0, end)}…`).width > max) end--;
@@ -429,11 +469,16 @@ function fit(ctx: CanvasRenderingContext2D, text: string, max: number) {
 // ---------------------------------------------------------------- hit test
 
 /** The session under a point: a card first, then a bracket. -1 if none. */
+/** Session whose card is at (x, py), or -1. Cards are the clickable targets. */
+export function cardAtPoint(view: TimelineView, cards: PlacedCard[], x: number, py: number): number {
+  const inX = x >= COLUMNS.cardsLeft && x <= view.width - COLUMNS.right;
+  if (!inX) return -1;
+  return cards.find((c) => py >= c.top && py <= c.top + THUMB_H)?.index ?? -1;
+}
+
 export function sessionAtPoint(scene: TimelineScene, view: TimelineView, cards: PlacedCard[], x: number, py: number): number {
-  for (const c of cards) {
-    const inX = x >= COLUMNS.cardsLeft && x <= view.width - COLUMNS.right;
-    if (inX && py >= c.top && py <= c.top + THUMB_H) return c.index;
-  }
+  const card = cardAtPoint(view, cards, x, py);
+  if (card >= 0) return card;
   const lane = Math.round((x - COLUMNS.lanesLeft - 1) / COLUMNS.laneStep);
   if (lane < 0 || Math.abs(x - (COLUMNS.lanesLeft + lane * COLUMNS.laneStep + 1)) > 3) return -1;
   const seq = scene.layout.seqAt(yToAxis(scene.layout, view, py), view.ppo);
@@ -441,14 +486,64 @@ export function sessionAtPoint(scene: TimelineScene, view: TimelineView, cards: 
   return hit ? hit.index : -1;
 }
 
-function drawHead(ctx: CanvasRenderingContext2D, y: number, width: number, theme: Theme) {
+const FLAG_H = 20;
+const FLAG_PAD = 4;
+const FLAG_TIP = 12;
+
+/**
+ * The playhead: a line across the strip with two tabs centred on it, the day
+ * on the left and the time on the right, tips pointing at the line. They use
+ * the day header's font and insets, and between days the head rests mid-band
+ * (TimelineLayout.headAt), so there they sit exactly over the header.
+ */
+function drawHead(ctx: CanvasRenderingContext2D, y: number, width: number, ts: number | null, theme: Theme) {
   const cy = Math.round(y);
   ctx.fillStyle = theme.accent;
   ctx.fillRect(0, cy - 1, width, 2);
-  ctx.beginPath();
-  ctx.moveTo(0, cy - 6);
-  ctx.lineTo(8, cy);
-  ctx.lineTo(0, cy + 6);
-  ctx.closePath();
+  if (ts === null) return;
+
+  const top = cy - FLAG_H / 2;
+  const bottom = cy + FLAG_H / 2;
+  ctx.font = `500 11px ${theme.fontMono}`;
+  const day = formatDay(ts).toUpperCase();
+  const time = formatTime(ts);
+  ctx.fillStyle = theme.headTab;
+
+  // Day tab: from the left edge to past the label, tip pointing right.
+  // Corners on the strip's edge stay square; the others are rounded.
+  const dayRight = COLUMNS.labelLeft + ctx.measureText(day).width + FLAG_PAD;
+  tracePolygon(ctx, [[0, top, 0], [dayRight, top, TAB_RADIUS], [dayRight + FLAG_TIP, cy, TIP_RADIUS], [dayRight, bottom, TAB_RADIUS], [0, bottom, 0]]);
   ctx.fill();
+
+  // Time tab: from before the label to the right edge, tip pointing left.
+  const timeLeft = width - COLUMNS.right - ctx.measureText(time).width - FLAG_PAD;
+  tracePolygon(ctx, [[width, top, 0], [timeLeft, top, TAB_RADIUS], [timeLeft - FLAG_TIP, cy, TIP_RADIUS], [timeLeft, bottom, TAB_RADIUS], [width, bottom, 0]]);
+  ctx.fill();
+
+  ctx.fillStyle = theme.headTabText;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.fillText(day, COLUMNS.labelLeft, cy + 0.5);
+  ctx.textAlign = 'right';
+  ctx.fillText(time, width - COLUMNS.right, cy + 0.5);
+}
+
+/** Rayon-like softness for the head's tabs; tips are only slightly blunted. */
+export const TAB_RADIUS = 4;
+const TIP_RADIUS = 2;
+
+/** A closed polygon with a corner radius per point: [x, y, radius]. */
+export function tracePolygon(ctx: CanvasRenderingContext2D, points: [number, number, number][]) {
+  const n = points.length;
+  const [lx, ly] = points[n - 1];
+  const [fx, fy] = points[0];
+  ctx.beginPath();
+  // Start mid-way along the closing edge, so every corner is drawn by arcTo.
+  ctx.moveTo((lx + fx) / 2, (ly + fy) / 2);
+  for (let i = 0; i < n; i++) {
+    const [x, y, r] = points[i];
+    const [nx, ny] = points[(i + 1) % n];
+    ctx.arcTo(x, y, nx, ny, r);
+  }
+  ctx.closePath();
 }

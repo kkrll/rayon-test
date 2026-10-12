@@ -11,20 +11,24 @@ import { boundsOf } from '../render/modelRenderer';
 import { type DrawThumbnail, planThumbnails } from '../render/previews';
 import { type Theme, readTheme } from '../render/theme';
 
-export const PROJECTS = [
+export interface ProjectEntry {
+  id: string;
+  name: string;
+  kind: '2D' | '3D';
+}
+
+/** The built-in projects; copies are added at runtime. */
+export const PROJECTS: ProjectEntry[] = [
   { id: 'apartment', name: 'Apartment', kind: '2D' },
   { id: 'n97', name: 'Nokia N97 mini', kind: '3D' },
-] as const;
-
-export type ProjectId = (typeof PROJECTS)[number]['id'];
+];
 
 interface Common {
-  id: ProjectId;
+  id: string;
+  name: string;
   dataset: Dataset;
   history: History;
   sessions: Session[];
-  /** Session ends are the display snapshots: Shift+arrow steps between them. */
-  sessionEnds: number[];
   areaLabel: string;
   thumbnails: (theme: Theme) => DrawThumbnail;
 }
@@ -42,43 +46,59 @@ export interface DeviceProject extends Common {
 
 export type Project = PlanProject | DeviceProject;
 
-function common(id: ProjectId, dataset: Dataset) {
+function common(id: string, name: string, dataset: Dataset) {
   const history = new History(dataset.ops);
   const sessions = groupSessions(dataset.ops);
-  const sessionEnds = [...new Set(sessions.map((s) => s.endSeq))].sort((a, b) => a - b);
-  return { id, dataset, history, sessions, sessionEnds };
+  return { id, name, dataset, history, sessions };
 }
 
-const loaders: Record<ProjectId, () => Promise<Project>> = {
-  apartment: async () => {
-    const base = common('apartment', generateDataset(1));
-    const bounds = boundsOf(base.history.snapshotAt(base.history.length).values());
-    return {
-      ...base,
-      kind: 'plan',
-      bounds,
-      areaLabel: 'Rooms',
-      thumbnails: (theme) => planThumbnails(base.history, bounds, theme),
-    };
-  },
+function planProject(id: string, name: string, dataset: Dataset, bounds?: Bounds): PlanProject {
+  const base = common(id, name, dataset);
+  const framing = bounds ?? boundsOf(base.history.snapshotAt(base.history.length).values());
+  return {
+    ...base,
+    kind: 'plan',
+    bounds: framing,
+    areaLabel: 'Rooms',
+    thumbnails: (theme) => planThumbnails(base.history, framing, theme),
+  };
+}
+
+function deviceProject(id: string, name: string, dataset: Dataset, model: DeviceModel): DeviceProject {
+  return {
+    ...common(id, name, dataset),
+    kind: 'device',
+    model,
+    areaLabel: 'Assemblies',
+    thumbnails: () => deviceThumbnails(model),
+  };
+}
+
+/**
+ * A project like `base` with another history: a copy, or the same project
+ * after a reset. Keeps the plan's framing and the loaded 3D model.
+ */
+export function deriveProject(base: Project, id: string, name: string, dataset: Dataset): Project {
+  const project =
+    base.kind === 'plan' ? planProject(id, name, dataset, base.bounds) : deviceProject(id, name, dataset, base.model);
+  cache.set(id, Promise.resolve(project));
+  return project;
+}
+
+const loaders: Record<string, () => Promise<Project>> = {
+  apartment: async () => planProject('apartment', 'Apartment', generateDataset(1)),
   n97: async () => {
     // Diff colours for the 3D materials come from the canvas (light) theme.
     const model = await DeviceModel.load(DEVICE_MODEL_URL, readTheme(document.documentElement));
-    return {
-      ...common('n97', generateDeviceDataset(1)),
-      kind: 'device',
-      model,
-      areaLabel: 'Assemblies',
-      thumbnails: () => deviceThumbnails(model),
-    };
+    return deviceProject('n97', 'Nokia N97 mini', generateDeviceDataset(1), model);
   },
 };
 
-const cache = new Map<ProjectId, Promise<Project>>();
+const cache = new Map<string, Promise<Project>>();
 
-/** Builds a project once (history, sessions, and for 3D the model file). */
-export function loadProject(id: ProjectId): Promise<Project> {
+/** Builds a built-in project once (history, sessions, and for 3D the model file). */
+export function loadProject(id: string): Promise<Project> {
   let project = cache.get(id);
-  if (!project) cache.set(id, (project = loaders[id]()));
+  if (!project) cache.set(id, (project = (loaders[id] ?? loaders.apartment)()));
   return project;
 }

@@ -26,6 +26,9 @@ export interface Preview {
  */
 export type DrawThumbnail = (ctx: CanvasRenderingContext2D, state: State, session: Session, dpr: number) => void;
 
+/** What the timeline needs from previews (lets a filtered view re-index them). */
+export type PreviewSource = Pick<SessionPreviews, 'get' | 'build'>;
+
 /**
  * Display snapshots: the model at each session's end, rendered small and
  * summarised. Built lazily for sessions that come into view, within a time

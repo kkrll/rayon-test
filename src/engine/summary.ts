@@ -109,3 +109,16 @@ function rankByFrequency(values: string[]): string[] {
   for (const v of values) counts.set(v, (counts.get(v) ?? 0) + 1);
   return [...counts].sort((a, b) => b[1] - a[1]).map(([v]) => v);
 }
+
+/**
+ * Every op described, indexed by seq - 1, for filtering. Rooms are taken at
+ * the end of each op's session, as in the session cards.
+ */
+export function describeAll(sessions: Session[], ops: Op[], roomsAt: (seq: number) => Room[]): SessionEdit[] {
+  const all: SessionEdit[] = new Array(ops.length);
+  for (const session of sessions) {
+    const edits = sessionEdits(session, ops, roomsAt(session.endSeq));
+    session.seqs.forEach((seq, i) => (all[seq - 1] = edits[i]));
+  }
+  return all;
+}

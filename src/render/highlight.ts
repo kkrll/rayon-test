@@ -19,13 +19,17 @@ export function toHighlight(diff: Diff): Highlight {
   };
 }
 
-/** Diff since the start of the session containing `seq`, cached for the last seq asked. */
+/**
+ * Diff since the start of the session containing `seq`, cached for the last
+ * seq asked. Nothing at a session's end: those are the snapshot moments, shown
+ * as the finished model, like their thumbnails.
+ */
 export function sessionHighlighter(history: History, sessions: Session[]): (seq: number) => Highlight {
   let key = '';
   let highlight = NO_HIGHLIGHT;
   return (seq) => {
     const index = sessionAt(sessions, history.ops, seq);
-    if (index < 0) return NO_HIGHLIGHT;
+    if (index < 0 || sessions[index].endSeq === seq) return NO_HIGHLIGHT;
     const from = sessions[index].startSeq - 1;
     if (`${from}:${seq}` !== key) {
       highlight = toHighlight(history.diff(from, seq));

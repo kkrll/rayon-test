@@ -13,6 +13,9 @@ export interface Theme {
   foreground05: string;
   foreground03: string;
   accent: string;
+  /** The playhead's day/time tabs. */
+  headTab: string;
+  headTabText: string;
   added: string;
   deleted: string;
   modified: string;
@@ -33,6 +36,8 @@ export function readTheme(el: Element): Theme {
     foreground05: v('--foreground-05'),
     foreground03: v('--foreground-03'),
     accent: v('--brand-text'),
+    headTab: v('--playhead-tab'),
+    headTabText: v('--playhead-tab-text'),
     added: v('--diff-added'),
     deleted: v('--diff-deleted'),
     modified: v('--diff-modified'),

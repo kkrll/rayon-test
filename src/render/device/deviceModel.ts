@@ -4,6 +4,10 @@ import {
   type BufferGeometry,
   Color,
   DoubleSide,
+  EdgesGeometry,
+  LineBasicMaterial,
+  LineDashedMaterial,
+  LineSegments,
   LinearSRGBColorSpace,
   type Material,
   Matrix4,
@@ -19,8 +23,13 @@ import type { Theme } from '../theme';
 /** Where a part's geometry sits in the finished model (metres, Y up). */
 export interface PartTemplate {
   geometry: BufferGeometry;
+  /** Hard edges (creases over EDGE_ANGLE), for outline drawing. */
+  edges: BufferGeometry;
   matrix: Matrix4;
 }
+
+/** Faces meeting at more than this (degrees) draw an edge line. */
+const EDGE_ANGLE = 35;
 
 export type DiffKind = 'added' | 'modified';
 
@@ -81,7 +90,10 @@ export class DeviceModel {
       // Set at runtime for every primitive mesh, though missing from the types.
       const primitive = (ref as { primitives?: number }).primitives ?? 0;
       const key = `${nodeOfMesh.get(ref.meshes)}/${primitive}`;
-      templates.set(key, { geometry: mesh.geometry, matrix: mesh.matrixWorld.clone() });
+      const edges = new EdgesGeometry(mesh.geometry, EDGE_ANGLE);
+      // Distances along the lines, for dashed deletion ghosts.
+      new LineSegments(edges).computeLineDistances();
+      templates.set(key, { geometry: mesh.geometry, edges, matrix: mesh.matrixWorld.clone() });
     });
     return new DeviceModel(templates, theme);
   }
@@ -91,23 +103,48 @@ export class DeviceModel {
     return this.cached(`${id}:${diff}`, () => {
       const material = standard(FINISHES[id as FinishId]);
       if (diff) {
-        material.emissive.set(diff === 'added' ? this.theme.added : this.theme.modified);
-        material.emissiveIntensity = 0.55;
+        material.emissive.set(this.diffColor(diff));
+        material.emissiveIntensity = 0.9;
       }
       return material;
     });
   }
 
-  /** Untouched parts while scrubbing: plain clay, so the changes stand out. */
-  clay(): Material {
-    return this.cached('clay', () =>
-      new MeshStandardMaterial({ color: this.theme.background07, roughness: 0.85, metalness: 0, side: DoubleSide }));
+  /** Untouched parts while scrubbing: plain matte white, read through their outlines. */
+  white(): Material {
+    return this.cached('white', () =>
+      new MeshStandardMaterial({ color: 0xffffff, roughness: 0.9, metalness: 0, side: DoubleSide }));
   }
 
-  /** Deleted parts: a wireframe ghost, so they don't read by colour alone. */
+  /** Changed parts while scrubbing: solid diff colour, lifted so it holds in shadow. */
+  solid(diff: DiffKind): Material {
+    return this.cached(`solid:${diff}`, () => {
+      const color = this.diffColor(diff);
+      return new MeshStandardMaterial({
+        color, emissive: color, emissiveIntensity: 0.35, roughness: 0.6, metalness: 0, side: DoubleSide,
+      });
+    });
+  }
+
+  /** Edge lines: ink for outlines, diff colours for changes at rest. */
+  line(kind: DiffKind | 'ink'): Material {
+    return this.cached(`line:${kind}`, () =>
+      new LineBasicMaterial({ color: kind === 'ink' ? this.theme.foreground : this.diffColor(kind) }));
+  }
+
+  /** Deleted parts: a faint shell with dashed edges, so they don't read by colour alone. */
   ghost(): Material {
     return this.cached('ghost', () =>
-      new MeshBasicMaterial({ color: this.theme.deleted, wireframe: true, transparent: true, opacity: 0.35, depthWrite: false }));
+      new MeshBasicMaterial({ color: this.theme.deleted, transparent: true, opacity: 0.12, depthWrite: false }));
+  }
+
+  ghostLine(): Material {
+    return this.cached('ghost-line', () =>
+      new LineDashedMaterial({ color: this.theme.deleted, dashSize: 0.0012, gapSize: 0.0008 }));
+  }
+
+  private diffColor(diff: DiffKind) {
+    return diff === 'added' ? this.theme.added : this.theme.modified;
   }
 
   private cached(key: string, make: () => Material): Material {

@@ -3,6 +3,7 @@ import {
   DirectionalLight,
   MathUtils,
   Matrix4,
+  LineSegments,
   Mesh,
   type PerspectiveCamera,
   PlaneGeometry,
@@ -73,9 +74,11 @@ export class DeviceStage {
   }
 
   /**
-   * full:    at rest, every part in its finish.
-   * outline: while scrubbing, untouched parts in clay; changes keep their finish.
-   * Either way, parts changed this session are tinted and deletions ghosted.
+   * full:    at rest, every part in its finish; parts changed this session
+   *          tinted and outlined in their diff colour.
+   * outline: while scrubbing, a white model drawn by its edges; changed parts
+   *          solid green (added) or blue (modified).
+   * Either way, deletions are ghosts with dashed edges.
    */
   sync(state: ReadonlyMap<string, ModelObject>, highlight: Highlight, mode: RenderMode) {
     for (const [id, mesh] of this.meshes) {
@@ -93,7 +96,16 @@ export class DeviceStage {
       }
       this.place(mesh, o);
       const diff = highlight.added.has(o.id) ? 'added' : highlight.modified.has(o.id) ? 'modified' : null;
-      mesh.material = mode === 'outline' && !diff ? this.model.clay() : this.model.finish(o.style.finish, diff);
+      const edges = mesh.children[0] as LineSegments;
+      if (mode === 'outline') {
+        mesh.material = diff ? this.model.solid(diff) : this.model.white();
+        edges.material = this.model.line('ink');
+        edges.visible = true;
+      } else {
+        mesh.material = this.model.finish(o.style.finish, diff);
+        edges.visible = diff !== null;
+        if (diff) edges.material = this.model.line(diff);
+      }
     }
 
     const deleted = highlight.deleted.filter((o): o is Part => o.type === 'part');
@@ -103,8 +115,13 @@ export class DeviceStage {
         this.ghosts[i] = this.createMesh(part);
         this.ghosts[i].castShadow = false;
       }
-      this.ghosts[i].geometry = this.model.templates.get(part.geometry.source)!.geometry;
+      const template = this.model.templates.get(part.geometry.source)!;
+      const edges = this.ghosts[i].children[0] as LineSegments;
+      this.ghosts[i].geometry = template.geometry;
       this.ghosts[i].material = this.model.ghost();
+      edges.geometry = template.edges;
+      edges.material = this.model.ghostLine();
+      edges.visible = true;
       this.place(this.ghosts[i], part);
     });
   }
@@ -128,8 +145,13 @@ export class DeviceStage {
   }
 
   private createMesh(part: Part): Mesh {
-    const mesh = new Mesh(this.model.templates.get(part.geometry.source)!.geometry);
+    const template = this.model.templates.get(part.geometry.source)!;
+    const mesh = new Mesh(template.geometry);
     mesh.matrixAutoUpdate = false;
+    // Edges ride along as a child, so placing the mesh places them too.
+    const edges = new LineSegments(template.edges);
+    edges.visible = false;
+    mesh.add(edges);
     mesh.castShadow = this.shadows;
     mesh.receiveShadow = this.shadows;
     this.scene.add(mesh);

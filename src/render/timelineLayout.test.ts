@@ -33,6 +33,13 @@ describe('TimelineLayout', () => {
     expect(layout.tickAt(4, 10)).toBe(30 + BREAK_PX);
   });
 
+  test('the head rests mid-break after a boundary followed by one', () => {
+    expect(layout.headAt(2, 10)).toBe(20);
+    expect(layout.headAt(3, 10)).toBe(30 + BREAK_PX / 2);
+    expect(layout.headAt(5, 10)).toBe(layout.length(10) + BREAK_PX / 2); // newest: mid top padding
+    for (let s = 0; s <= ops.length; s++) expect(layout.headSeqAt(layout.headAt(s, 10) + 1, 10)).toBe(s);
+  });
+
   test('seqAt inverts boundaryAt', () => {
     for (let s = 0; s <= ops.length; s++) expect(layout.seqAt(layout.boundaryAt(s, 10) + 1, 10)).toBe(s);
   });
