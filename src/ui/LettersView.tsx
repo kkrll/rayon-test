@@ -82,31 +82,18 @@ export function LettersView(props: Props) {
       dirty = false;
     };
 
-    // Build every shape the history uses (a few dozen) while idle, so
-    // the first scrub through history doesn't build them mid-frame.
-    // Safari has no requestIdleCallback: short slices on a timer instead.
-    const whenIdle = (cb: (d: IdleDeadline) => void): number =>
-      'requestIdleCallback' in window
-        ? requestIdleCallback(cb)
-        : setTimeout(() => cb({ didTimeout: false, timeRemaining: () => 8 }), 50);
-    const cancelIdle = (id: number) => ('cancelIdleCallback' in window ? cancelIdleCallback(id) : clearTimeout(id));
-    let warmFrom = 0;
-    let idle = 0;
-    const warm = (deadline: IdleDeadline) => {
-      const ops = props.history.ops;
-      while (warmFrom < ops.length && deadline.timeRemaining() > 2) {
-        const letter = ops[warmFrom++].after;
-        if (letter?.type === 'letter') props.kit.shape(letter as Letter);
-      }
-      if (warmFrom < ops.length) idle = whenIdle(warm);
-    };
-    idle = whenIdle(warm);
+    // Shapes are built in a worker: redraw when one lands (it replaces a stand-in).
+    const stopShapes = props.kit.onShape(() => (drawnSeq = -1));
+    // Everything the history uses, newest first, so scrubbing rarely waits.
+    props.kit.prefetch(
+      props.history.ops.toReversed().flatMap((op) => (op.after?.type === 'letter' ? [op.after as Letter] : [])),
+    );
 
     const observer = new ResizeObserver(resize);
     observer.observe(container);
     const stop = onFrame(frame);
     onCleanup(() => {
-      cancelIdle(idle);
+      stopShapes();
       stop();
       observer.disconnect();
       controls.dispose();

@@ -22,9 +22,10 @@ export interface Preview {
 
 /**
  * Draws the state at a session's end into a THUMB_W x THUMB_H canvas (device
- * pixels; `ctx` is unscaled). Each kind of project brings its own.
+ * pixels; `ctx` is unscaled). Each kind of project brings its own. Returning
+ * false means "not yet" (e.g. 3D shapes still being built): it is retried later.
  */
-export type DrawThumbnail = (ctx: CanvasRenderingContext2D, state: State, session: Session, dpr: number) => void;
+export type DrawThumbnail = (ctx: CanvasRenderingContext2D, state: State, session: Session, dpr: number) => boolean | void;
 
 /** What the timeline needs from previews (lets a filtered view re-index them). */
 export type PreviewSource = Pick<SessionPreviews, 'get' | 'build'>;
@@ -56,16 +57,22 @@ export class SessionPreviews {
   build(budgetMs: number): boolean {
     const deadline = performance.now() + budgetMs;
     let built = false;
+    const later: number[] = [];
     while (this.wanted.size && performance.now() < deadline) {
       const index = [...this.wanted].pop()!;
       this.wanted.delete(index);
-      this.cache.set(index, this.render(this.sessions[index]));
-      built = true;
+      const preview = this.render(this.sessions[index]);
+      if (preview) {
+        this.cache.set(index, preview);
+        built = true;
+      } else later.push(index);
     }
+    // Not ready yet: ask again next time.
+    for (const index of later) this.wanted.add(index);
     return built;
   }
 
-  private render(session: Session): Preview {
+  private render(session: Session): Preview | null {
     const state = this.history.snapshotAt(session.endSeq);
     const rooms = [...state.values()].filter((o): o is Room => o.type === 'room');
     const edits = sessionEdits(session, this.history.ops, rooms);
@@ -77,7 +84,7 @@ export class SessionPreviews {
     const ctx = image.getContext('2d')!;
     ctx.fillStyle = this.theme.background;
     ctx.fillRect(0, 0, image.width, image.height);
-    this.draw(ctx, state, session, dpr);
+    if (this.draw(ctx, state, session, dpr) === false) return null;
 
     return { image, edits, summary: summarize(edits) };
   }

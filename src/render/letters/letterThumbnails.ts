@@ -1,4 +1,5 @@
 import { PerspectiveCamera, WebGLRenderer } from 'three';
+import type { Letter } from '../../engine/types';
 import { NO_HIGHLIGHT } from '../highlight';
 import { type DrawThumbnail, THUMB_H, THUMB_W } from '../previews';
 import type { LetterKit } from './letterKit';
@@ -14,6 +15,9 @@ export function letterThumbnails(kit: LetterKit): DrawThumbnail {
   const camera = new PerspectiveCamera(30, THUMB_W / THUMB_H);
 
   return (ctx, state, _session, dpr) => {
+    // Wait for the real shapes rather than freeze a stand-in into the thumbnail.
+    const letters = [...state.values()].filter((o): o is Letter => o.type === 'letter');
+    if (!kit.ready(letters)) return false;
     if (!renderer) {
       renderer = new WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
       renderer.setPixelRatio(dpr);

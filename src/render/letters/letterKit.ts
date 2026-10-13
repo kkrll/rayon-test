@@ -1,5 +1,4 @@
 import {
-  type BufferGeometry,
   CanvasTexture,
   Color,
   DoubleSide,
@@ -13,28 +12,31 @@ import {
   SRGBColorSpace,
   type Texture,
 } from 'three';
-import { FontLoader } from 'three/examples/jsm/loaders/FontLoader.js';
-import type { Letter, LetterMaterial } from '../../engine/types';
+import type { Letter } from '../../engine/types';
 import type { Theme } from '../theme';
 import { noise } from './noise';
-import { buildTopology } from './topology';
-import { TUBE_WIDTH, buildTubeEdges, buildTubes } from './tubes';
-import fontData from './geist-black-abcd.typeface.json';
+import type { ShapeRequest } from './shapeWorker';
+import {
+  type LetterShape,
+  type PackedGeometry,
+  type ShapeSpec,
+  buildPlain,
+  buildShape,
+  familyKey,
+  quantize,
+  shapeKey,
+  specOf,
+  unpack,
+} from './shapes';
 
 export type DiffKind = 'added' | 'modified';
 
-export interface LetterShape {
-  geometry: BufferGeometry;
-  /** Hard edges, for outline drawing. */
-  edges: BufferGeometry;
-}
+export type { LetterShape };
+export { SHAPE_DEPTH } from './shapes';
 
 /** Shapes kept around: everything the history uses fits, with room for resets. */
-const SHAPE_CACHE = 160;
-/** Shapes are built at this depth and stretched to a letter's own. */
-export const SHAPE_DEPTH = 0.3;
+const SHAPE_CACHE = 240;
 
-const font = new FontLoader().parse(fontData as never);
 
 /**
  * Geometry and materials for the letters, shared by every view that draws
@@ -43,29 +45,123 @@ const font = new FontLoader().parse(fontData as never);
  */
 export class LetterKit {
   private readonly shapes = new Map<string, LetterShape>();
+  /** Bare glyphs standing in for shapes still being built (a few ms each, on this thread). */
+  private readonly plains = new Map<string, LetterShape>();
+  private readonly queue = new Map<string, { spec: ShapeSpec; urgent: boolean }>();
+  private inFlight: string | null = null;
+  private readonly listeners = new Set<() => void>();
+  /** Null where workers aren't available (tests): shapes are then built in place. */
+  private worker: Worker | null =
+    typeof Worker === 'undefined' ? null : new Worker(new URL('./shapeWorker.ts', import.meta.url), { type: 'module' });
   private readonly materials = new Map<string, Material>();
   private readonly textures = new Map<string, Texture>();
 
-  constructor(private readonly theme: Theme) {}
+  constructor(private readonly theme: Theme) {
+    this.worker?.addEventListener('message', (e: MessageEvent<{ key: string; geometry: PackedGeometry; edges: PackedGeometry }>) =>
+      this.receive(e.data.key, e.data.geometry, e.data.edges));
+    // If the worker can't run, build in place as before: slower, but never stuck on stand-ins.
+    this.worker?.addEventListener('error', () => {
+      this.worker?.terminate();
+      this.worker = null;
+      this.inFlight = null;
+      this.queue.clear();
+      for (const listener of this.listeners) listener();
+    });
+  }
 
   /**
    * The letter's form, shaped by its material: plain, chiselled (displaced
    * on the GPU by `aNoise`), domed glass, or chrome tubes. It depends only on
-   * the character, material family and bevel (or tube count), never on depth
-   * (stretched when placed) or roughness (a uniform), so scrubbing reuses a
-   * few dozen shapes, each built in a few to ~35 ms.
+   * the character, material and bevel (or tube count): see `shapeKey`.
+   *
+   * Shapes are built in a worker, so the main thread never stalls on one.
+   * Until it arrives, a stand-in: the same letter and material with another
+   * bevel if there is one, else the bare glyph. `onShape` listeners redraw.
    */
   shape(letter: Letter): LetterShape {
-    const { geometry: g, style: s } = letter;
-    const key = s.material === 'chrome' ? `${s.name}|tubes|${tubeCount(s.detail)}` : `${s.name}|${s.material}|${g.bevel}`;
-    let shape = this.shapes.get(key);
+    const spec = specOf(letter);
+    const key = shapeKey(spec);
+    const shape = this.shapes.get(key);
     if (shape) {
       // Most recently used last, so the oldest is first to go.
       this.shapes.delete(key);
       this.shapes.set(key, shape);
       return shape;
     }
-    shape = buildShape(s.name, s.material, g.bevel, s.detail);
+    if (!this.worker) return this.store(key, buildShape(spec));
+    this.request(key, spec, true);
+    return this.standIn(spec);
+  }
+
+  /** True if every letter in `state` has its real shape; asks for the missing ones. */
+  ready(letters: Iterable<Letter>): boolean {
+    let ready = true;
+    for (const letter of letters) {
+      const spec = specOf(letter);
+      const key = shapeKey(spec);
+      if (this.shapes.has(key)) continue;
+      ready = false;
+      if (this.worker) this.request(key, spec, true);
+      else this.store(key, buildShape(spec));
+    }
+    return ready;
+  }
+
+  /** Queues shapes to build in the background, behind anything on screen. */
+  prefetch(letters: Iterable<Letter>) {
+    for (const letter of letters) {
+      const spec = specOf(letter);
+      const key = shapeKey(spec);
+      if (!this.shapes.has(key)) this.request(key, spec, false);
+    }
+  }
+
+  /** Called whenever a shape arrives from the worker; returns an unsubscribe. */
+  onShape(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private request(key: string, spec: ShapeSpec, urgent: boolean) {
+    if (!this.worker || this.inFlight === key) return;
+    const queued = this.queue.get(key);
+    if (queued && (!urgent || queued.urgent)) return;
+    this.queue.delete(key);
+    this.queue.set(key, { spec, urgent }); // re-inserted: latest request last
+    this.pump();
+  }
+
+  /** One build at a time: newest urgent request first, then prefetches in order. */
+  private pump() {
+    if (!this.worker || this.inFlight !== null || this.queue.size === 0) return;
+    let next: string | null = null;
+    for (const [key, { urgent }] of this.queue) if (urgent) next = key;
+    next ??= this.queue.keys().next().value!;
+    const { spec } = this.queue.get(next)!;
+    this.queue.delete(next);
+    this.inFlight = next;
+    this.worker.postMessage({ key: next, spec } satisfies ShapeRequest);
+  }
+
+  private receive(key: string, geometry: PackedGeometry, edges: PackedGeometry) {
+    this.inFlight = null;
+    this.store(key, { geometry: unpack(geometry), edges: unpack(edges) });
+    this.pump();
+    for (const listener of this.listeners) listener();
+  }
+
+  private standIn(spec: ShapeSpec): LetterShape {
+    const family = familyKey(spec);
+    let near: LetterShape | null = null;
+    for (const [key, shape] of this.shapes) if (key.startsWith(family)) near = shape;
+    if (near) return near;
+    const plainKey = `${spec.char}|plain|${spec.bevel}`;
+    let plain = this.plains.get(plainKey);
+    if (!plain) this.plains.set(plainKey, (plain = buildPlain(spec)));
+    return plain;
+  }
+
+  private store(key: string, shape: LetterShape): LetterShape {
     this.shapes.set(key, shape);
     if (this.shapes.size > SHAPE_CACHE) {
       const [oldKey, old] = this.shapes.entries().next().value!;
@@ -195,29 +291,6 @@ function glassMaterial(color: string, detail: number): MeshStandardMaterial {
   return material;
 }
 
-/** Detail in quarter steps: enough variation, few distinct shapes and textures. */
-const quantize = (detail: number) => Math.round(detail * 4) / 4;
-
-// ---------------------------------------------------------------- geometry
-
-/** Chrome: more detail, more (thinner) tubes. */
-const tubeCount = (detail: number) => 3 + Math.round(quantize(detail) * 4);
-
-function buildShape(char: string, material: LetterMaterial, bevel: number, detail: number): LetterShape {
-  if (material === 'chrome') {
-    const count = tubeCount(detail);
-    // Rods are round (±r in z); stretch them back to SHAPE_DEPTH so the sides read as ribs.
-    const stretch = SHAPE_DEPTH / 2 / ((TUBE_WIDTH / (2 * count)) * 0.92);
-    const geometry = buildTubes(char, count).scale(1, 1, stretch);
-    const edges = buildTubeEdges(char, count).scale(1, 1, stretch);
-    return { geometry, edges };
-  }
-  // Glass is domed; stone and carved are subdivided for displacement. Carved has a
-  // wider rim than its bevel says, cut like a chamfer.
-  const family = material === 'glass' ? 'domed' : material === 'stone' || material === 'carved' ? 'faceted' : 'plain';
-  const size = material === 'carved' ? 0.015 + bevel * 0.5 : bevel;
-  return buildTopology(font, { char, depth: SHAPE_DEPTH, bevel: size, family });
-}
 
 // ---------------------------------------------------------------- textures
 
