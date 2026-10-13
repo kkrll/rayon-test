@@ -13,9 +13,9 @@ import {
   type WebGLRenderer,
 } from 'three';
 import type { Letter, ModelObject } from '../../engine/types';
-import type { Highlight } from '../highlight';
+import { type Highlight, NO_HIGHLIGHT } from '../highlight';
 import type { RenderMode } from '../modelRenderer';
-import type { LetterKit } from './letterKit';
+import { type LetterKit, SHAPE_DEPTH } from './letterKit';
 import { createStudioEnvironment } from './studio';
 
 /** The row of letters, with room for them to move around. */
@@ -75,13 +75,13 @@ export class LetterStage {
   }
 
   /**
-   * full:    at rest, every letter in its material; letters changed this
-   *          session tinted and outlined in their diff colour.
-   * outline: while scrubbing, white letters drawn by their edges; changed
-   *          ones solid green (added) or blue (modified).
-   * Either way, deletions are ghosts with dashed edges.
+   * Every letter in its own material, scrubbing or not (shapes are cheap to
+   * switch: see LetterKit.shape). While scrubbing ('outline'), letters changed
+   * this session are tinted and outlined in their diff colour and deletions
+   * are ghosts with dashed edges; at rest ('full') the letters are shown clean.
    */
   sync(state: ReadonlyMap<string, ModelObject>, highlight: Highlight, mode: RenderMode) {
+    if (mode === 'full') highlight = NO_HIGHLIGHT;
     for (const [id, mesh] of this.meshes) {
       if (!state.has(id)) {
         this.scene.remove(mesh);
@@ -98,15 +98,9 @@ export class LetterStage {
       this.place(mesh, o);
       const diff = highlight.added.has(o.id) ? 'added' : highlight.modified.has(o.id) ? 'modified' : null;
       const edges = mesh.children[0] as LineSegments;
-      if (mode === 'outline') {
-        mesh.material = diff ? this.kit.solid(diff) : this.kit.white();
-        edges.material = this.kit.line('ink');
-        edges.visible = true;
-      } else {
-        mesh.material = this.kit.surface(o, diff);
-        edges.visible = diff !== null;
-        if (diff) edges.material = this.kit.line(diff);
-      }
+      mesh.material = this.kit.surface(o, diff);
+      edges.visible = diff !== null;
+      if (diff) edges.material = this.kit.line(diff);
     }
 
     const deleted = highlight.deleted.filter((o): o is Letter => o.type === 'letter');
@@ -154,12 +148,14 @@ export class LetterStage {
     return mesh;
   }
 
+  /** Shapes are built at SHAPE_DEPTH and stretched to the letter's own depth. */
   private place(mesh: Mesh, letter: Letter) {
     const { geometry, edges } = this.kit.shape(letter);
     mesh.geometry = geometry;
     (mesh.children[0] as LineSegments).geometry = edges;
-    const { position, rotation } = letter.geometry;
+    const { position, rotation, depth } = letter.geometry;
     mesh.position.set(position.x, position.y, position.z);
     mesh.rotation.y = MathUtils.degToRad(rotation);
+    mesh.scale.z = depth / SHAPE_DEPTH;
   }
 }

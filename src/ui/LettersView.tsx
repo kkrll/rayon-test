@@ -3,6 +3,7 @@ import { MathUtils, PerspectiveCamera, WebGLRenderer } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { History } from '../engine/history';
 import type { Session } from '../engine/sessions';
+import type { Letter } from '../engine/types';
 import { onFrame } from '../render/frameLoop';
 import { sessionHighlighter } from '../render/highlight';
 import type { LetterKit } from '../render/letters/letterKit';
@@ -81,10 +82,31 @@ export function LettersView(props: Props) {
       dirty = false;
     };
 
+    // Build every shape the history uses (a few dozen) while idle, so
+    // the first scrub through history doesn't build them mid-frame.
+    // Safari has no requestIdleCallback: short slices on a timer instead.
+    const whenIdle = (cb: (d: IdleDeadline) => void): number =>
+      'requestIdleCallback' in window
+        ? requestIdleCallback(cb)
+        : setTimeout(() => cb({ didTimeout: false, timeRemaining: () => 8 }), 50);
+    const cancelIdle = (id: number) => ('cancelIdleCallback' in window ? cancelIdleCallback(id) : clearTimeout(id));
+    let warmFrom = 0;
+    let idle = 0;
+    const warm = (deadline: IdleDeadline) => {
+      const ops = props.history.ops;
+      while (warmFrom < ops.length && deadline.timeRemaining() > 2) {
+        const letter = ops[warmFrom++].after;
+        if (letter?.type === 'letter') props.kit.shape(letter as Letter);
+      }
+      if (warmFrom < ops.length) idle = whenIdle(warm);
+    };
+    idle = whenIdle(warm);
+
     const observer = new ResizeObserver(resize);
     observer.observe(container);
     const stop = onFrame(frame);
     onCleanup(() => {
+      cancelIdle(idle);
       stop();
       observer.disconnect();
       controls.dispose();
