@@ -262,7 +262,7 @@ function ViewActions(props: ViewActionsProps) {
           <button class="button button-secondary" onClick={() => cancel('button')}>
             Cancel
           </button>
-          <button class="button button-secondary" onClick={props.onReset}>
+          <button class="button button-negative" onClick={props.onReset}>
             Reset all
           </button>
           <button class="button button-negative" onClick={props.onResetFiltered}>
