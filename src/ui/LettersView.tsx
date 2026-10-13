@@ -3,24 +3,24 @@ import { MathUtils, PerspectiveCamera, WebGLRenderer } from 'three';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import type { History } from '../engine/history';
 import type { Session } from '../engine/sessions';
-import type { DeviceModel } from '../render/device/deviceModel';
-import { DeviceStage } from '../render/device/deviceStage';
 import { onFrame } from '../render/frameLoop';
 import { sessionHighlighter } from '../render/highlight';
+import type { LetterKit } from '../render/letters/letterKit';
+import { LetterStage } from '../render/letters/letterStage';
 import { stats } from '../render/stats';
 import { cursor } from './cursor';
 
 interface Props {
   history: History;
   sessions: Session[];
-  model: DeviceModel;
+  kit: LetterKit;
 }
 
 /**
- * The 3D counterpart of ModelView: the device at the cursor, orbitable.
+ * The 3D counterpart of ModelView: the letters at the cursor, orbitable.
  * Draws only when the cursor, the scrub mode or the camera changed.
  */
-export function DeviceView(props: Props) {
+export function LettersView(props: Props) {
   let container!: HTMLDivElement;
   const highlightAt = sessionHighlighter(props.history, props.sessions);
 
@@ -32,7 +32,7 @@ export function DeviceView(props: Props) {
     renderer.domElement.classList.add('device-canvas');
     container.appendChild(renderer.domElement);
 
-    const stage = new DeviceStage(props.model, renderer, true);
+    const stage = new LetterStage(props.kit, renderer, true);
     const camera = new PerspectiveCamera(30, 1);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;

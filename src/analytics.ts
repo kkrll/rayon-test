@@ -14,7 +14,7 @@ export function initAnalytics() {
   if (!enabled) return;
   posthog.init(key!, {
     api_host: (import.meta.env.VITE_POSTHOG_HOST as string | undefined) ?? 'https://us.i.posthog.com',
-    // Projects live in the hash (#n97): count each switch as a pageview.
+    // Projects live in the hash (#letters): count each switch as a pageview.
     capture_pageview: 'history_change',
     autocapture: true,
     person_profiles: 'always',

@@ -4,8 +4,8 @@ import { FACETS, type Facet, type Filter, isEmpty, matcher, toggle } from '../en
 import type { History } from '../engine/history';
 import { type Lens, createLens } from '../engine/lens';
 import type { Session } from '../engine/sessions';
-import { type EditVerb, type SessionEdit, describeAll, summarize } from '../engine/summary';
-import type { Author, Room } from '../engine/types';
+import { type EditVerb, type SessionEdit, summarize } from '../engine/summary';
+import type { Author } from '../engine/types';
 import { type DrawThumbnail, type Preview, type PreviewSource, SessionPreviews } from '../render/previews';
 import { type Theme, readTheme } from '../render/theme';
 import { formatDay, formatTime } from './format';
@@ -18,6 +18,11 @@ interface Props {
   thumbnails: (theme: Theme) => DrawThumbnail;
   /** What summaries call the places edits happen in: "Rooms", "Assemblies". */
   areaLabel: string;
+  /** Every edit described, indexed by seq - 1 (the project builds it once). */
+  describe: () => SessionEdit[];
+  /** Owned by the app, so it outlives a reset of the project. */
+  filter: Filter;
+  onFilter: (filter: Filter) => void;
   /** The real seq shown, whenever it changes. */
   onSeq?: (seq: number) => void;
 }
@@ -32,7 +37,7 @@ export function HistoryPanel(props: Props) {
   const ops = props.history.ops;
   const [seq, setSeq] = createSignal(ops.length);
   const [hover, setHover] = createSignal<SessionHover | null>(null);
-  const [filter, setFilter] = createSignal<Filter>({});
+  const filter = () => props.filter;
   const total = ops.length.toLocaleString('en');
   const authorById = new Map(props.authors.map((a) => [a.id, a]));
 
@@ -42,11 +47,7 @@ export function HistoryPanel(props: Props) {
   const previews = new SessionPreviews(props.history, props.sessions, props.thumbnails(modelTheme), modelTheme);
   const zoom = { ppo: 6 };
 
-  // Every op described (name, area, verb), built on first use of a filter.
-  let edits: SessionEdit[] | null = null;
-  const describe = () =>
-    (edits ??= describeAll(props.sessions, ops, (s) =>
-      [...props.history.snapshotAt(s).values()].filter((o): o is Room => o.type === 'room')));
+  const describe = () => props.describe();
 
   const lens = createMemo(() => {
     const f = filter();
@@ -95,7 +96,7 @@ export function HistoryPanel(props: Props) {
   const toggleValue = (facet: Facet, value: string, source: 'card' | 'chip') => {
     const active = !(filter()[facet]?.includes(value) ?? false);
     track('filter_toggled', { facet, value, active, source });
-    setFilter((f) => toggle(f, facet, value));
+    props.onFilter(toggle(filter(), facet, value));
     clearTimeout(closeTimer);
     setHover(null);
   };

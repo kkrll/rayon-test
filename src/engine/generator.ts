@@ -10,8 +10,8 @@ import type {
   Author, Dataset, Furniture, ModelObject, NamedVersion, ObjectType, Op, Room, State, Vec, Wall,
 } from './types';
 
-/** The floor plan only has these; device parts come from generator3d. */
-type PlanType = Exclude<ObjectType, 'part'>;
+/** The floor plan only has these; letters come from letters.ts. */
+type PlanType = Exclude<ObjectType, 'letter'>;
 
 // ---------------------------------------------------------------- time
 

@@ -221,7 +221,7 @@ function traceOutline(ctx: CanvasRenderingContext2D, o: ModelObject) {
   if (o.type === 'wall') traceWallOutline(ctx, o);
   else if (o.type === 'room') traceRoom(ctx, o);
   else if (o.type === 'furniture') traceFurniture(ctx, o);
-  else ctx.beginPath(); // device parts have no plan footprint
+  else ctx.beginPath(); // letters have no plan footprint
 }
 
 export function traceWall(ctx: CanvasRenderingContext2D, w: Wall, begin = true) {

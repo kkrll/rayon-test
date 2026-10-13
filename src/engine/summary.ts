@@ -1,5 +1,14 @@
 import type { Session } from './sessions';
-import type { ModelObject, ObjectType, Op, Room, Vec } from './types';
+import type { LetterMaterial, ModelObject, ObjectType, Op, Room, Vec } from './types';
+
+/** Letter materials as people call them; they group letter edits like rooms do. */
+export const MATERIAL_NAMES: Record<LetterMaterial, string> = {
+  clay: 'Clay',
+  stone: 'Stone',
+  glass: 'Glass',
+  chrome: 'Chrome',
+  carved: 'Carved stone',
+};
 
 /** What a single edit did, in words a person would use. */
 export type EditVerb = 'created' | 'deleted' | 'moved' | 'rotated' | 'resized' | 'restyled' | 'renamed' | 'reshaped';
@@ -8,11 +17,11 @@ export interface SessionEdit {
   verb: EditVerb;
   type: ObjectType;
   objectId: string;
-  /** Display name: "Sofa", "Kitchen", "Wall", "Keycaps". */
+  /** Display name: "Sofa", "Kitchen", "Wall", "A". */
   name: string;
   /**
    * Where the edit happened: the room an object sits in (or the room itself)
-   * at the end of the session, or a device part's assembly.
+   * at the end of the session, or a letter's material.
    */
   area: string | null;
 }
@@ -38,9 +47,13 @@ export function describeEdit(op: Op): EditVerb {
     const sameShift = dax === a.b.x - b.b.x && day === a.b.y - b.b.y;
     return sameShift && (dax !== 0 || day !== 0) ? 'moved' : 'reshaped';
   }
-  if (before.type === 'part' && after.type === 'part') {
-    const [b, a] = [before.geometry.offset, after.geometry.offset];
-    return a.x !== b.x || a.y !== b.y || a.z !== b.z ? 'moved' : 'restyled';
+  if (before.type === 'letter' && after.type === 'letter') {
+    const [b, a] = [before.geometry, after.geometry];
+    const [pa, pb] = [a.position, b.position];
+    if (pa.x !== pb.x || pa.y !== pb.y || pa.z !== pb.z) return 'moved';
+    if (a.rotation !== b.rotation) return 'rotated';
+    if (a.depth !== b.depth || a.bevel !== b.bevel) return 'reshaped';
+    return 'restyled';
   }
   if (before.type === 'room' && after.type === 'room') {
     if (before.style.name !== after.style.name) return 'renamed';
@@ -61,7 +74,7 @@ export function sessionEdits(session: Session, ops: Op[], rooms: Room[]): Sessio
 }
 
 function areaOf(obj: ModelObject, rooms: Room[]): string | null {
-  if (obj.type === 'part') return obj.style.assembly;
+  if (obj.type === 'letter') return MATERIAL_NAMES[obj.style.material];
   if (obj.type === 'room') return obj.style.name;
   const p = obj.type === 'wall' ? midpoint(obj.geometry.a, obj.geometry.b) : obj.geometry;
   return rooms.find((r) => contains(r.geometry.points, p))?.style.name ?? null;

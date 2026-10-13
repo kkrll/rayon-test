@@ -1,16 +1,16 @@
 import { PerspectiveCamera, WebGLRenderer } from 'three';
 import { NO_HIGHLIGHT } from '../highlight';
 import { type DrawThumbnail, THUMB_H, THUMB_W } from '../previews';
-import type { DeviceModel } from './deviceModel';
-import { DeviceStage } from './deviceStage';
+import type { LetterKit } from './letterKit';
+import { LetterStage } from './letterStage';
 
 /**
- * Device thumbnails: one small offscreen renderer with its own stage, posed
+ * Letter thumbnails: one small offscreen renderer with its own stage, posed
  * on the state at each session's end and copied into the preview canvas.
  */
-export function deviceThumbnails(model: DeviceModel): DrawThumbnail {
+export function letterThumbnails(kit: LetterKit): DrawThumbnail {
   let renderer: WebGLRenderer | null = null;
-  let stage: DeviceStage;
+  let stage: LetterStage;
   const camera = new PerspectiveCamera(30, THUMB_W / THUMB_H);
 
   return (ctx, state, _session, dpr) => {
@@ -19,7 +19,7 @@ export function deviceThumbnails(model: DeviceModel): DrawThumbnail {
       renderer.setPixelRatio(dpr);
       renderer.setSize(THUMB_W, THUMB_H, false);
       renderer.setClearAlpha(0);
-      stage = new DeviceStage(model, renderer, false);
+      stage = new LetterStage(kit, renderer, false);
       stage.frame(camera);
     }
     stage.sync(state, NO_HIGHLIGHT, 'full');

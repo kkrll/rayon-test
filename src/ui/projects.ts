@@ -1,12 +1,12 @@
-import { DEVICE_MODEL_URL } from '../engine/device';
 import { generateDataset } from '../engine/generator';
-import { generateDeviceDataset } from '../engine/generator3d';
+import { generateLettersDataset } from '../engine/letters';
 import { History } from '../engine/history';
 import { type Session, groupSessions } from '../engine/sessions';
-import type { Dataset } from '../engine/types';
+import { type SessionEdit, describeAll } from '../engine/summary';
+import type { Dataset, Room } from '../engine/types';
 import type { Bounds } from '../render/camera';
-import { DeviceModel } from '../render/device/deviceModel';
-import { deviceThumbnails } from '../render/device/deviceThumbnails';
+import { LetterKit } from '../render/letters/letterKit';
+import { letterThumbnails } from '../render/letters/letterThumbnails';
 import { boundsOf } from '../render/modelRenderer';
 import { type DrawThumbnail, planThumbnails } from '../render/previews';
 import { type Theme, readTheme } from '../render/theme';
@@ -20,7 +20,7 @@ export interface ProjectEntry {
 /** The built-in projects; copies are added at runtime. */
 export const PROJECTS: ProjectEntry[] = [
   { id: 'apartment', name: 'Apartment', kind: '2D' },
-  { id: 'n97', name: 'Nokia N97 mini', kind: '3D' },
+  { id: 'letters', name: 'Letters', kind: '3D' },
 ];
 
 interface Common {
@@ -31,6 +31,8 @@ interface Common {
   sessions: Session[];
   areaLabel: string;
   thumbnails: (theme: Theme) => DrawThumbnail;
+  /** Every edit described (name, area, verb), indexed by seq - 1; built on first use. */
+  describe: () => SessionEdit[];
 }
 
 export interface PlanProject extends Common {
@@ -39,17 +41,21 @@ export interface PlanProject extends Common {
   bounds: Bounds;
 }
 
-export interface DeviceProject extends Common {
-  kind: 'device';
-  model: DeviceModel;
+export interface LettersProject extends Common {
+  kind: 'letters';
+  kit: LetterKit;
 }
 
-export type Project = PlanProject | DeviceProject;
+export type Project = PlanProject | LettersProject;
 
 function common(id: string, name: string, dataset: Dataset) {
   const history = new History(dataset.ops);
   const sessions = groupSessions(dataset.ops);
-  return { id, name, dataset, history, sessions };
+  let edits: SessionEdit[] | null = null;
+  const describe = () =>
+    (edits ??= describeAll(sessions, dataset.ops, (s) =>
+      [...history.snapshotAt(s).values()].filter((o): o is Room => o.type === 'room')));
+  return { id, name, dataset, history, sessions, describe };
 }
 
 function planProject(id: string, name: string, dataset: Dataset, bounds?: Bounds): PlanProject {
@@ -64,39 +70,37 @@ function planProject(id: string, name: string, dataset: Dataset, bounds?: Bounds
   };
 }
 
-function deviceProject(id: string, name: string, dataset: Dataset, model: DeviceModel): DeviceProject {
+function lettersProject(id: string, name: string, dataset: Dataset, kit: LetterKit): LettersProject {
   return {
     ...common(id, name, dataset),
-    kind: 'device',
-    model,
-    areaLabel: 'Assemblies',
-    thumbnails: () => deviceThumbnails(model),
+    kind: 'letters',
+    kit,
+    areaLabel: 'Materials',
+    thumbnails: () => letterThumbnails(kit),
   };
 }
 
 /**
  * A project like `base` with another history: a copy, or the same project
- * after a reset. Keeps the plan's framing and the loaded 3D model.
+ * after a reset. Keeps the plan's framing and the letters' geometry cache.
  */
 export function deriveProject(base: Project, id: string, name: string, dataset: Dataset): Project {
   const project =
-    base.kind === 'plan' ? planProject(id, name, dataset, base.bounds) : deviceProject(id, name, dataset, base.model);
+    base.kind === 'plan' ? planProject(id, name, dataset, base.bounds) : lettersProject(id, name, dataset, base.kit);
   cache.set(id, Promise.resolve(project));
   return project;
 }
 
 const loaders: Record<string, () => Promise<Project>> = {
   apartment: async () => planProject('apartment', 'Apartment', generateDataset(1)),
-  n97: async () => {
-    // Diff colours for the 3D materials come from the canvas (light) theme.
-    const model = await DeviceModel.load(DEVICE_MODEL_URL, readTheme(document.documentElement));
-    return deviceProject('n97', 'Nokia N97 mini', generateDeviceDataset(1), model);
-  },
+  // Diff colours for the 3D materials come from the canvas (light) theme.
+  letters: async () =>
+    lettersProject('letters', 'Letters', generateLettersDataset(1), new LetterKit(readTheme(document.documentElement))),
 };
 
 const cache = new Map<string, Promise<Project>>();
 
-/** Builds a built-in project once (history, sessions, and for 3D the model file). */
+/** Builds a built-in project once (history, sessions, and for 3D the letter kit). */
 export function loadProject(id: string): Promise<Project> {
   let project = cache.get(id);
   if (!project) cache.set(id, (project = (loaders[id] ?? loaders.apartment)()));

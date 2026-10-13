@@ -1,5 +1,5 @@
-// Plan units are centimetres, device units millimetres. Objects are immutable: an edit replaces the
-// whole object, so `before`/`after` on an Op can be stored by reference.
+// Plan units are centimetres; letters are measured in letter heights. Objects are immutable: an
+// edit replaces the whole object, so `before`/`after` on an Op can be stored by reference.
 
 export interface Vec {
   x: number;
@@ -28,15 +28,17 @@ export interface Furniture {
   style: { name: string; material: string };
 }
 
-/** One part of a 3D device: a piece of the source model, placed and finished. */
-export interface Part {
+/** A 3D letter standing on the floor (units: letter heights, Y up). */
+export interface Letter {
   id: string;
-  type: 'part';
-  // `source` names the geometry in the model file; `offset` (mm) is relative
-  // to where the part sits in the finished model.
-  geometry: { source: string; offset: Vec3 };
-  style: { name: string; assembly: string; finish: string };
+  type: 'letter';
+  // `rotation` turns it about Y, in degrees; `bevel` rounds (or chamfers) its edges.
+  geometry: { position: Vec3; rotation: number; depth: number; bevel: number };
+  // `name` is the character itself; `detail` (0..1) is how strong the material's texture is.
+  style: { name: string; material: LetterMaterial; color: string; detail: number };
 }
+
+export type LetterMaterial = 'clay' | 'stone' | 'glass' | 'chrome' | 'carved';
 
 export interface Vec3 {
   x: number;
@@ -44,7 +46,7 @@ export interface Vec3 {
   z: number;
 }
 
-export type ModelObject = Wall | Room | Furniture | Part;
+export type ModelObject = Wall | Room | Furniture | Letter;
 export type ObjectType = ModelObject['type'];
 
 export type OpKind = 'create' | 'update' | 'delete';
