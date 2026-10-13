@@ -98,6 +98,8 @@ body {
 .stage {
   position: relative;
   min-width: 0;
+  /* The canvas ground is the stage's own, so the page behind can be dark on phones. */
+  background: var(--background);
 }
 
 .model-view {
@@ -618,6 +620,15 @@ body {
  * Touch has no hover, so the floating session card is not used.
  */
 @media (max-width: 720px) {
+  /*
+   * The history strip is at the bottom: Safari tints its toolbar (and the
+   * area under it) from the page, so the page itself takes the panel's dark ground.
+   */
+  html,
+  body {
+    background: #101010;
+  }
+
   .app {
     grid-template-columns: 1fr;
     grid-template-rows: 1fr auto;
